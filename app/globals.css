@@ -1,0 +1,92 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}
+
+@layer base {
+  :root {
+    /* Updated color tokens to match AI labeling tool design brief */
+    --background: 0 0% 100%;
+    --foreground: 213 16% 35%;
+    --card: 210 20% 98%;
+    --card-foreground: 213 16% 35%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 213 16% 35%;
+    --primary: 188 78% 41%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 210 20% 98%;
+    --secondary-foreground: 213 16% 35%;
+    --muted: 210 20% 98%;
+    --muted-foreground: 213 16% 35%;
+    --accent: 188 78% 41%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 220 13% 91%;
+    --input: 0 0% 100%;
+    --ring: 188 78% 41%;
+    --chart-1: 213 94% 68%;
+    --chart-2: 217 91% 60%;
+    --chart-3: 221 83% 53%;
+    --chart-4: 224 76% 48%;
+    --chart-5: 226 71% 40%;
+    --radius: 0.5rem;
+    --sidebar-background: 210 20% 98%;
+    --sidebar-foreground: 213 16% 35%;
+    --sidebar-primary: 0 0% 100%;
+    --sidebar-primary-foreground: 213 16% 35%;
+    --sidebar-accent: 188 78% 41%;
+    --sidebar-accent-foreground: 0 0% 100%;
+    --sidebar-border: 220 13% 91%;
+    --sidebar-ring: 188 78% 41%;
+  }
+  .dark {
+    /* Updated dark mode tokens for professional AI tool aesthetic */
+    --background: 222 84% 5%;
+    --foreground: 210 40% 98%;
+    --card: 222 84% 5%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222 84% 5%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 188 78% 41%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 217 33% 17%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 217 33% 17%;
+    --muted-foreground: 215 20% 65%;
+    --accent: 188 78% 41%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 63% 31%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 217 33% 17%;
+    --input: 217 33% 17%;
+    --ring: 188 78% 41%;
+    --chart-1: 213 94% 68%;
+    --chart-2: 217 91% 60%;
+    --chart-3: 221 83% 53%;
+    --chart-4: 224 76% 48%;
+    --chart-5: 226 71% 40%;
+    --sidebar-background: 222 84% 5%;
+    --sidebar-foreground: 210 40% 98%;
+    --sidebar-primary: 217 33% 17%;
+    --sidebar-primary-foreground: 210 40% 98%;
+    --sidebar-accent: 188 78% 41%;
+    --sidebar-accent-foreground: 0 0% 100%;
+    --sidebar-border: 217 33% 17%;
+    --sidebar-ring: 188 78% 41%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
