@@ -59,14 +59,16 @@ const COLOR_PALETTE = [
 
 // Default classes
 const DEFAULT_CLASSES: ClassDefinition[] = [
-  { id: "person", name: "Person", color: "#ef4444", description: "Human beings", shortcut: "1" },
-  { id: "car", name: "Car", color: "#3b82f6", description: "Automobiles", shortcut: "2" },
-  { id: "bicycle", name: "Bicycle", color: "#22c55e", description: "Bicycles", shortcut: "3" },
-  { id: "dog", name: "Dog", color: "#f97316", description: "Dogs", shortcut: "4" },
-  { id: "cat", name: "Cat", color: "#8b5cf6", description: "Cats", shortcut: "5" },
-  { id: "bird", name: "Bird", color: "#06b6d4", description: "Birds", shortcut: "6" },
-  { id: "tree", name: "Tree", color: "#84cc16", description: "Trees and plants", shortcut: "7" },
-  { id: "building", name: "Building", color: "#6b7280", description: "Buildings and structures", shortcut: "8" },
+  { id: "button_1", name: "button_1", color: "#ef4444", description: "Class 1", shortcut: "1" },
+  { id: "button_2", name: "button_2", color: "#f97316", description: "Class 2", shortcut: "2" },
+  { id: "button_3", name: "button_3", color: "#eab308", description: "Class 3", shortcut: "3" },
+  { id: "button_4", name: "button_4", color: "#22c55e", description: "Class 4", shortcut: "4" },
+  { id: "button_5", name: "button_5", color: "#06b6d4", description: "Class 5", shortcut: "5" },
+  { id: "button_6", name: "button_6", color: "#3b82f6", description: "Class 6", shortcut: "6" },
+  { id: "button_7", name: "button_7", color: "#8b5cf6", description: "Class 7", shortcut: "7" },
+  { id: "button_8", name: "button_8", color: "#ec4899", description: "Class 8", shortcut: "8" },
+  { id: "button_9", name: "button_9", color: "#84cc16", description: "Class 9", shortcut: "9" },
+  { id: "button_10", name: "button_10", color: "#6b7280", description: "Class 10", shortcut: "0" },
 ]
 
 export default function ClassManager({
@@ -414,7 +416,7 @@ export default function ClassManager({
 
         {/* Quick shortcuts help */}
         <div className="text-xs text-muted-foreground bg-muted/30 p-2 rounded">
-          <strong>Tip:</strong> Use number keys (1-9) for quick class assignment
+          <strong>Shortcuts:</strong> 1-9 = button_1-9, 0 = button_10, Backspace = remove class
         </div>
       </CardContent>
     </Card>

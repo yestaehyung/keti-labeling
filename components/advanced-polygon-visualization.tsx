@@ -147,8 +147,9 @@ export default function AdvancedPolygonVisualization({
     // Only handle shortcuts when in the labeling workspace and a polygon is selected
     if (!selectedPolygon || !onClassAssign) return
     
-    // Handle number keys 1-9 for class shortcuts
     const key = event.key
+    
+    // Handle number keys 1-9 for button_1 to button_9
     if (key >= '1' && key <= '9') {
       event.preventDefault()
       const classIndex = parseInt(key) - 1
@@ -163,8 +164,22 @@ export default function AdvancedPolygonVisualization({
       }
     }
     
-    // Handle 0 to remove class
+    // Handle 0 for button_10
     if (key === '0') {
+      event.preventDefault()
+      const targetClass = classes[9] // button_10 is at index 9
+      
+      if (targetClass) {
+        onClassAssign(selectedPolygon, targetClass.id)
+        toast({
+          title: "Class assigned",
+          description: `Assigned "${targetClass.name}" to selected polygon using shortcut ${key}.`,
+        })
+      }
+    }
+    
+    // Handle Backspace to remove class assignment
+    if (key === 'Backspace') {
       event.preventDefault()
       onClassAssign(selectedPolygon, '')
       toast({
