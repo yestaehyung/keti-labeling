@@ -272,10 +272,6 @@ export default function Home() {
             <Zap className="mr-2 h-4 w-4 text-primary" />
             Powered by SAM2 AI Technology
           </div>
-          <h1 className="text-4xl font-bold tracking-tight font-sans mb-4">Professional Image Labeling</h1>
-          <p className="text-xl text-muted-foreground font-mono max-w-2xl mx-auto">
-            Advanced AI-powered annotation tool for computer vision researchers and data scientists
-          </p>
         </div>
 
         {/* Advanced Features Tabs */}
