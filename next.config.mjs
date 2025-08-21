@@ -23,6 +23,10 @@ const nextConfig = {
         source: '/images/:path*',
         destination: 'http://114.110.129.109:8000/images/:path*',
       },
+      {
+        source: '/api/:path*',
+        destination: 'http://114.110.129.109:8000/api/:path*',
+      },
     ]
   },
 }

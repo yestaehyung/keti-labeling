@@ -1,6 +1,7 @@
 export const API_CONFIG = {
-  // 여기에 백엔드 서버 주소를 입력하세요
-  BASE_URL: "http://114.110.129.109:8000", // 예: 'http://your-backend-server.com:8000'
+  // Use relative URLs for production (Next.js will proxy to backend)
+  // For development, this will use the rewrite rules in next.config.mjs
+  BASE_URL: "", // Empty string to use relative URLs
 
   // API 엔드포인트들
   ENDPOINTS: {
