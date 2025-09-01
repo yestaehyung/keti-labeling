@@ -108,6 +108,20 @@ export default function LabelingWorkspace({
     return mockPolygons
   }
 
+  // Persist image dimensions to localStorage for export usage
+  useEffect(() => {
+    if (!selectedImage || !imageSize.width || !imageSize.height) return
+    try {
+      const key = "ketilabel_image_meta"
+      const raw = localStorage.getItem(key)
+      const meta = raw ? JSON.parse(raw) : {}
+      meta[selectedImage] = { width: imageSize.width, height: imageSize.height }
+      localStorage.setItem(key, JSON.stringify(meta))
+    } catch (e) {
+      console.error("Failed to persist image meta:", e)
+    }
+  }, [selectedImage, imageSize.width, imageSize.height])
+
   const handleSamV2Processing = async () => {
     setIsProcessing(true)
     setProcessingStatus("processing")

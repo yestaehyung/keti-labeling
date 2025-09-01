@@ -72,49 +72,62 @@ export default function TrainingPage() {
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
     setIsValidating(true)
-    
-    acceptedFiles.forEach((file) => {
-      const reader = new FileReader()
-      
-      reader.onload = () => {
-        try {
-          const content = JSON.parse(reader.result as string)
-          
-          if (validateJsonFile(content)) {
-            const newFile: UploadedFile = {
-              id: Math.random().toString(36).substr(2, 9),
-              name: file.name,
-              size: file.size,
-              content,
-              uploadDate: new Date()
+
+    const tasks = acceptedFiles.map((file) =>
+      new Promise<void>((resolve) => {
+        const reader = new FileReader()
+
+        reader.onload = () => {
+          try {
+            const content = JSON.parse(reader.result as string)
+
+            if (validateJsonFile(content)) {
+              const newFile: UploadedFile = {
+                id: Math.random().toString(36).substr(2, 9),
+                name: file.name,
+                size: file.size,
+                content,
+                uploadDate: new Date(),
+              }
+
+              setUploadedFiles((prev) => [...prev, newFile])
+
+              toast({
+                title: "File uploaded successfully",
+                description: `${file.name} has been validated and added.`,
+              })
+            } else {
+              toast({
+                title: "Invalid JSON format",
+                description: `${file.name} is not a valid annotation file.`,
+                variant: "destructive",
+              })
             }
-            
-            setUploadedFiles(prev => [...prev, newFile])
-            
+          } catch (error) {
             toast({
-              title: "File uploaded successfully",
-              description: `${file.name} has been validated and added.`,
+              title: "Failed to parse JSON",
+              description: `${file.name} contains invalid JSON.`,
+              variant: "destructive",
             })
-          } else {
-            toast({
-              title: "Invalid JSON format",
-              description: `${file.name} is not a valid annotation file.`,
-              variant: "destructive"
-            })
+          } finally {
+            resolve()
           }
-        } catch (error) {
-          toast({
-            title: "Failed to parse JSON",
-            description: `${file.name} contains invalid JSON.`,
-            variant: "destructive"
-          })
         }
-      }
-      
-      reader.readAsText(file)
-    })
-    
-    setIsValidating(false)
+
+        reader.onerror = () => {
+          toast({
+            title: "File read error",
+            description: `${file.name} could not be read.`,
+            variant: "destructive",
+          })
+          resolve()
+        }
+
+        reader.readAsText(file)
+      }),
+    )
+
+    Promise.allSettled(tasks).finally(() => setIsValidating(false))
   }, [toast])
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
@@ -141,16 +154,16 @@ export default function TrainingPage() {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
   }
 
-  const canStartTraining = uploadedFiles.length > 0
+  // Testing mode: allow starting without uploaded JSON files
+  const testingMode = true
+  const canStartTraining = testingMode || uploadedFiles.length > 0
 
   const handleStartTraining = () => {
-    if (!canStartTraining) {
+    if (uploadedFiles.length === 0) {
       toast({
-        title: "No data uploaded",
-        description: "Please upload at least one JSON file to start training.",
-        variant: "destructive"
+        title: "Testing mode",
+        description: "Starting training monitor without uploaded data.",
       })
-      return
     }
 
     // Store training data and config in localStorage
@@ -383,17 +396,16 @@ export default function TrainingPage() {
           <div className="text-center">
             <Button
               onClick={handleStartTraining}
-              disabled={!canStartTraining}
               size="lg"
               className="px-8"
             >
               <Play className="mr-2 h-5 w-5" />
               Start Training
             </Button>
-            {!canStartTraining && (
+            {uploadedFiles.length === 0 && (
               <p className="text-sm text-muted-foreground mt-2 flex items-center justify-center">
                 <AlertCircle className="h-4 w-4 mr-1" />
-                Please upload at least one JSON file to start training
+                Testing mode enabled: You can start without uploads
               </p>
             )}
           </div>

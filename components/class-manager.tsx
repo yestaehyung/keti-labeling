@@ -88,10 +88,23 @@ export default function ClassManager({
 
   // Initialize with default classes if empty
   useEffect(() => {
+    console.log('ClassManager: Current classes:', classes)
+    console.log('ClassManager: DEFAULT_CLASSES:', DEFAULT_CLASSES)
     if (classes.length === 0) {
+      console.log('ClassManager: Setting default classes')
       onClassesChange(DEFAULT_CLASSES)
     }
   }, [classes.length, onClassesChange])
+
+  // Force update to new button classes (temporary - for migration)
+  const handleForceUpdateToButtonClasses = () => {
+    onClassesChange(DEFAULT_CLASSES)
+    localStorage.setItem("ketilabel_classes", JSON.stringify(DEFAULT_CLASSES))
+    toast({
+      title: "Classes updated",
+      description: "Classes have been updated to button_1 through button_10.",
+    })
+  }
 
   const handleAddClass = () => {
     if (!newClassName.trim()) {
@@ -412,6 +425,14 @@ export default function ClassManager({
               Reset
             </Button>
           </div>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={handleForceUpdateToButtonClasses}
+            className="w-full"
+          >
+            Update to Button Classes
+          </Button>
         </div>
 
         {/* Quick shortcuts help */}

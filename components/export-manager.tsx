@@ -38,6 +38,18 @@ export default function ExportManager({ images, annotations, onExport }: ExportM
   const [exportProgress, setExportProgress] = useState(0)
   const { toast } = useToast()
 
+  // Retrieve stored image dimensions (saved by LabelingWorkspace)
+  const getImageMeta = (image: string): { width: number; height: number } | null => {
+    try {
+      const raw = localStorage.getItem("ketilabel_image_meta")
+      if (!raw) return null
+      const meta = JSON.parse(raw) as Record<string, { width: number; height: number }>
+      return meta[image] || null
+    } catch {
+      return null
+    }
+  }
+
   const exportFormats: ExportFormat[] = [
     {
       id: "coco",
@@ -108,16 +120,21 @@ export default function ExportManager({ images, annotations, onExport }: ExportM
           url: "",
         },
       ],
-      images: selectedImages.map((image, index) => ({
-        id: index + 1,
-        width: 800, // Default, should be actual image dimensions
-        height: 600,
-        file_name: image,
-        license: 1,
-        flickr_url: "",
-        coco_url: "",
-        date_captured: new Date().toISOString(),
-      })),
+      images: selectedImages.map((image, index) => {
+        const meta = getImageMeta(image)
+        const width = meta?.width ?? 800
+        const height = meta?.height ?? 600
+        return {
+          id: index + 1,
+          width,
+          height,
+          file_name: image,
+          license: 1,
+          flickr_url: "",
+          coco_url: "",
+          date_captured: new Date().toISOString(),
+        }
+      }),
       annotations: [],
       categories: [{ id: 1, name: "object", supercategory: "thing" }],
     }
@@ -146,14 +163,17 @@ export default function ExportManager({ images, annotations, onExport }: ExportM
 
     selectedImages.forEach((image) => {
       const imageAnnotations = annotations[image] || []
+      const meta = getImageMeta(image)
+      const imgW = meta?.width ?? 800
+      const imgH = meta?.height ?? 600
       const yoloAnnotations = imageAnnotations
         .map((annotation) => {
           const [x, y, width, height] = annotation.bbox || [0, 0, 0, 0]
           // Convert to YOLO format (normalized center coordinates)
-          const centerX = (x + width / 2) / 800 // Normalize by image width
-          const centerY = (y + height / 2) / 600 // Normalize by image height
-          const normalizedWidth = width / 800
-          const normalizedHeight = height / 600
+          const centerX = (x + width / 2) / imgW // Normalize by image width
+          const centerY = (y + height / 2) / imgH // Normalize by image height
+          const normalizedWidth = width / imgW
+          const normalizedHeight = height / imgH
 
           return `0 ${centerX.toFixed(6)} ${centerY.toFixed(6)} ${normalizedWidth.toFixed(6)} ${normalizedHeight.toFixed(6)}`
         })
@@ -364,7 +384,7 @@ export default function ExportManager({ images, annotations, onExport }: ExportM
                     checked={isSelected}
                     onCheckedChange={(checked) => handleImageSelect(image, checked as boolean)}
                   />
-                  <ImageIcon src={`/images/${image}`} alt={image} className="w-10 h-10 object-cover rounded border" />
+                  <img src={`/images/${image}`} alt={image} className="w-10 h-10 object-cover rounded border" />
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium truncate">{image}</p>
                     <div className="flex items-center space-x-2">
