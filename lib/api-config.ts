@@ -12,6 +12,7 @@ export const API_CONFIG = {
     GENERATE_POLYGONS_WITH_POINTS: "/api/generate-polygons-with-points",
     GEMINI_ASSIST: "/api/gemini-assist",
     CONVERT_TO_COCO: "/api/convert-to-coco",
+    ANNOTATIONS: "/api/annotations",
   },
 }
 

@@ -20,6 +20,7 @@ import {
 import Link from "next/link"
 import { useDropzone } from "react-dropzone"
 import { useToast } from "@/hooks/use-toast"
+import { apiCall, API_CONFIG } from "@/lib/api-config"
 
 interface UploadedFile {
   id: string
@@ -38,6 +39,9 @@ interface TrainingConfig {
 
 export default function TrainingPage() {
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([])
+  const [serverAnnotationFiles, setServerAnnotationFiles] = useState<string[]>([])
+  const [selectedServerAnnotations, setSelectedServerAnnotations] = useState<string[]>([])
+  const [loadingServerAnnotations, setLoadingServerAnnotations] = useState(false)
   const [trainingConfig, setTrainingConfig] = useState<TrainingConfig>({
     modelType: "segmentation",
     epochs: 100,
@@ -137,6 +141,69 @@ export default function TrainingPage() {
     },
     multiple: true
   })
+
+  // Load server-side annotation filenames
+  useEffect(() => {
+    const loadAnnotations = async () => {
+      setLoadingServerAnnotations(true)
+      try {
+        const res = await apiCall(API_CONFIG.ENDPOINTS.ANNOTATIONS)
+        if (!res.ok) throw new Error(`Failed to load annotations: ${res.status}`)
+        const data = await res.json()
+        if (Array.isArray(data)) {
+          setServerAnnotationFiles(data)
+        }
+      } catch (e) {
+        console.error(e)
+      } finally {
+        setLoadingServerAnnotations(false)
+      }
+    }
+    loadAnnotations()
+  }, [])
+
+  const toggleSelectServerAnnotation = (name: string, checked: boolean) => {
+    setSelectedServerAnnotations((prev) =>
+      checked ? Array.from(new Set([...prev, name])) : prev.filter((n) => n !== name),
+    )
+  }
+
+  const importSelectedServerAnnotations = async () => {
+    if (selectedServerAnnotations.length === 0) return
+    setIsValidating(true)
+    try {
+      const results = await Promise.allSettled(
+        selectedServerAnnotations.map(async (name) => {
+          const res = await apiCall(`${API_CONFIG.ENDPOINTS.ANNOTATIONS}/${encodeURIComponent(name)}`)
+          if (!res.ok) throw new Error(`Download failed (${res.status})`)
+          const content = await res.json()
+          if (!validateJsonFile(content)) throw new Error("Invalid annotation JSON")
+
+          const size = new Blob([JSON.stringify(content)]).size
+          const newFile: UploadedFile = {
+            id: Math.random().toString(36).substr(2, 9),
+            name,
+            size,
+            content,
+            uploadDate: new Date(),
+          }
+          setUploadedFiles((prev) => {
+            const exists = prev.some((f) => f.name === name)
+            return exists ? prev.map((f) => (f.name === name ? newFile : f)) : [...prev, newFile]
+          })
+        }),
+      )
+
+      const ok = results.filter((r) => r.status === "fulfilled").length
+      const fail = results.length - ok
+      toast({
+        title: "Import completed",
+        description: `${ok} imported${fail ? `, ${fail} failed` : ""}`,
+      })
+    } finally {
+      setIsValidating(false)
+    }
+  }
 
   const removeFile = (fileId: string) => {
     setUploadedFiles(prev => prev.filter(file => file.id !== fileId))
@@ -300,6 +367,53 @@ export default function TrainingPage() {
               </CardContent>
             </Card>
           )}
+
+          {/* Load JSON from Server */}
+          <Card className="mb-8">
+            <CardHeader>
+              <CardTitle>Load Annotations from Server</CardTitle>
+              <CardDescription>Select server-stored JSON annotations to include in training</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {loadingServerAnnotations ? (
+                <div className="text-sm text-muted-foreground">Loading annotation list…</div>
+              ) : serverAnnotationFiles.length === 0 ? (
+                <div className="text-sm text-muted-foreground">No annotation files available on server.</div>
+              ) : (
+                <>
+                  <div className="max-h-56 overflow-y-auto space-y-2 mb-4">
+                    {serverAnnotationFiles.map((name) => {
+                      const checked = selectedServerAnnotations.includes(name)
+                      return (
+                        <div key={name} className="flex items-center justify-between p-2 border rounded">
+                          <div className="truncate pr-4 text-sm">{name}</div>
+                          <div className="flex items-center space-x-2">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={(e) => toggleSelectServerAnnotation(name, e.target.checked)}
+                            />
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <div className="text-xs text-muted-foreground">
+                      Selected: {selectedServerAnnotations.length}
+                    </div>
+                    <Button
+                      variant="secondary"
+                      onClick={importSelectedServerAnnotations}
+                      disabled={isValidating || selectedServerAnnotations.length === 0}
+                    >
+                      Import Selected
+                    </Button>
+                  </div>
+                </>
+              )}
+            </CardContent>
+          </Card>
 
           {/* Training Configuration */}
           <Card className="mb-8">
