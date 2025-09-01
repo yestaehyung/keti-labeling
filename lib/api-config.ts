@@ -13,6 +13,10 @@ export const API_CONFIG = {
     GEMINI_ASSIST: "/api/gemini-assist",
     CONVERT_TO_COCO: "/api/convert-to-coco",
     ANNOTATIONS: "/api/annotations",
+    // Training endpoints
+    TRAIN_START: "/api/train-model",
+    TRAINING_STATUS: "/api/training/status",
+    TRAINING_JOBS: "/api/training/jobs",
   },
 }
 

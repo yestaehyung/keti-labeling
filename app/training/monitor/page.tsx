@@ -1,51 +1,125 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
-import { Brain, ArrowLeft, Activity, FileText, Timer, Home } from "lucide-react"
+import { Brain, ArrowLeft, Activity, FileText, Timer, Home, RefreshCw, Trash2 } from "lucide-react"
+import { apiCall, API_CONFIG } from "@/lib/api-config"
 
 interface TrainingData {
   files: Array<{ id: string; name: string; size: number }>
-  config: { modelType: string; epochs: number; learningRate: number; batchSize: number }
+  config: { modelType: string; epochs: number; learningRate: number; batchSize: number; imgSize?: number; modelName?: string }
   startTime: string
+  annotationFilename?: string
+}
+
+interface TrainingStatus {
+  job_id: string
+  status: "preparing" | "training" | "completed" | "failed" | "cancelled"
+  progress: number
+  message?: string
+  created_at?: string
+  completed_at?: string | null
+  annotation_filename?: string
+  model_name?: string
+  training_parameters?: { epochs: number; batch_size: number; img_size: number }
+  processed_images_count?: number
+  metrics?: any
+  error?: any
 }
 
 export default function TrainingMonitorPage() {
   const [progress, setProgress] = useState(0)
   const [logs, setLogs] = useState<string[]>([])
   const [data, setData] = useState<TrainingData | null>(null)
+  const [jobId, setJobId] = useState<string | null>(null)
+  const [status, setStatus] = useState<TrainingStatus | null>(null)
+  const [jobs, setJobs] = useState<any[]>([])
+  const pollingRef = useRef<NodeJS.Timeout | null>(null)
 
+  // Load stored training data and job id
   useEffect(() => {
     try {
       const raw = localStorage.getItem("ketilabel_training_data")
-      if (raw) {
-        setData(JSON.parse(raw))
+      if (raw) setData(JSON.parse(raw))
+      const storedJobId = localStorage.getItem("ketilabel_training_job_id")
+      if (storedJobId) setJobId(storedJobId)
+    } catch {}
+  }, [])
+
+  // Poll job status if jobId exists; else simulate
+  useEffect(() => {
+    if (!jobId) {
+      // Simulated progress and logs when no server job
+      const interval = setInterval(() => {
+        setProgress((p) => Math.min(100, p + Math.random() * 7 + 3))
+        setLogs((prev) => [
+          `[${new Date().toLocaleTimeString()}] Step completed. Loss=${(Math.random() * 0.5 + 0.1).toFixed(3)} Acc=${(Math.random() * 0.2 + 0.7).toFixed(3)}`,
+          ...prev,
+        ].slice(0, 100))
+      }, 1200)
+      return () => clearInterval(interval)
+    }
+
+    const poll = async () => {
+      try {
+        const res = await apiCall(`${API_CONFIG.ENDPOINTS.TRAINING_STATUS}/${encodeURIComponent(jobId)}`)
+        if (!res.ok) throw new Error(`Status ${res.status}`)
+        const s: TrainingStatus = await res.json()
+        setStatus(s)
+        setProgress(s.progress ?? 0)
+        if (s.message) setLogs((prev) => [`[${new Date().toLocaleTimeString()}] ${s.message}`, ...prev].slice(0, 300))
+        if (s.status === "completed" || s.status === "failed" || s.status === "cancelled") {
+          if (pollingRef.current) clearInterval(pollingRef.current)
+          pollingRef.current = null
+        }
+      } catch (e) {
+        setLogs((prev) => [`[${new Date().toLocaleTimeString()}] Failed to fetch status`, ...prev].slice(0, 300))
       }
+    }
+
+    poll()
+    pollingRef.current = setInterval(poll, 2000)
+    return () => {
+      if (pollingRef.current) clearInterval(pollingRef.current)
+      pollingRef.current = null
+    }
+  }, [jobId])
+
+  // Load jobs list
+  const refreshJobs = useCallback(async () => {
+    try {
+      const res = await apiCall(API_CONFIG.ENDPOINTS.TRAINING_JOBS)
+      if (!res.ok) throw new Error(`Jobs ${res.status}`)
+      const body = await res.json()
+      setJobs(Array.isArray(body.jobs) ? body.jobs : [])
     } catch {}
   }, [])
 
   useEffect(() => {
-    // Simulated progress and logs for testing
-    const interval = setInterval(() => {
-      setProgress((p) => {
-        const next = Math.min(100, p + Math.random() * 7 + 3)
-        if (next >= 100) clearInterval(interval)
-        return next
-      })
-      setLogs((prev) => [
-        `[${new Date().toLocaleTimeString()}] Step completed. Loss=${(Math.random() * 0.5 + 0.1).toFixed(3)} Acc=${(Math.random() * 0.2 + 0.7).toFixed(3)}`,
-        ...prev,
-      ].slice(0, 100))
-    }, 1200)
-    return () => clearInterval(interval)
-  }, [])
+    refreshJobs()
+  }, [refreshJobs])
 
-  const startedAt = useMemo(() => (data?.startTime ? new Date(data.startTime) : null), [data?.startTime])
+  const deleteJob = async (id: string) => {
+    try {
+      const res = await apiCall(`${API_CONFIG.ENDPOINTS.TRAINING_JOBS}/${encodeURIComponent(id)}`, { method: "DELETE" })
+      if (res.ok) {
+        if (jobId === id) {
+          localStorage.removeItem("ketilabel_training_job_id")
+          setJobId(null)
+          setStatus(null)
+          setProgress(0)
+        }
+        refreshJobs()
+      }
+    } catch {}
+  }
+
+  const startedAt = useMemo(() => (data?.startTime ? new Date(data.startTime) : status?.created_at ? new Date(status.created_at) : null), [data?.startTime, status?.created_at])
 
   return (
     <div className="min-h-screen bg-background">
@@ -58,7 +132,7 @@ export default function TrainingMonitorPage() {
               </div>
               <div>
                 <h1 className="text-xl font-bold font-sans">Training Monitor</h1>
-                <p className="text-xs text-muted-foreground font-mono">Real-time training progress</p>
+                <p className="text-xs text-muted-foreground font-mono">{jobId ? `Job: ${jobId}` : "Testing mode"}</p>
               </div>
             </div>
             <div className="flex items-center space-x-2">
@@ -87,7 +161,7 @@ export default function TrainingMonitorPage() {
               <Activity className="mr-2 h-5 w-5 text-primary" />
               Training Progress
             </CardTitle>
-            <CardDescription>Simulated progress for testing</CardDescription>
+            <CardDescription>{jobId ? (status?.status ?? "-") : "Simulated for testing"}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="flex items-center justify-between text-sm">
@@ -95,10 +169,17 @@ export default function TrainingMonitorPage() {
               <Badge variant={progress >= 100 ? "default" : "secondary"}>{Math.floor(progress)}%</Badge>
             </div>
             <Progress value={progress} />
+            {status?.metrics && (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+                {Object.entries(status.metrics).map(([k, v]) => (
+                  <div key={k} className="p-2 border rounded">{k}: <strong>{String(v)}</strong></div>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
 
-        {/* Summary */}
+        {/* Summary and Jobs */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <Card className="lg:col-span-2">
             <CardHeader>
@@ -106,7 +187,7 @@ export default function TrainingMonitorPage() {
                 <FileText className="mr-2 h-5 w-5" />
                 Dataset & Config
               </CardTitle>
-              <CardDescription>Loaded from local storage</CardDescription>
+              <CardDescription>{data?.annotationFilename || status?.annotation_filename || "Local/Test session"}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="text-sm">
@@ -125,19 +206,16 @@ export default function TrainingMonitorPage() {
                     ))}
                   </div>
                 ) : (
-                  <div className="text-muted-foreground">No files provided (testing mode)</div>
+                  <div className="text-muted-foreground">No local files (server job or testing)</div>
                 )}
               </div>
 
               <div className="text-sm">
-                <div className="flex items-center justify-between">
-                  <span>Model Type</span>
-                  <Badge>{data?.config?.modelType ?? "segmentation"}</Badge>
-                </div>
-                <div className="grid grid-cols-3 gap-2 mt-2">
-                  <div className="p-2 border rounded">Epochs: <strong>{data?.config?.epochs ?? 100}</strong></div>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-2">
+                  <div className="p-2 border rounded">Epochs: <strong>{status?.training_parameters?.epochs ?? data?.config?.epochs ?? 100}</strong></div>
                   <div className="p-2 border rounded">LR: <strong>{data?.config?.learningRate ?? 0.001}</strong></div>
-                  <div className="p-2 border rounded">Batch: <strong>{data?.config?.batchSize ?? 16}</strong></div>
+                  <div className="p-2 border rounded">Batch: <strong>{status?.training_parameters?.batch_size ?? data?.config?.batchSize ?? 16}</strong></div>
+                  <div className="p-2 border rounded">Img: <strong>{status?.training_parameters?.img_size ?? data?.config?.imgSize ?? 640}</strong></div>
                 </div>
               </div>
             </CardContent>
@@ -157,30 +235,46 @@ export default function TrainingMonitorPage() {
                 <span className="text-muted-foreground">{startedAt ? startedAt.toLocaleString() : "-"}</span>
               </div>
               <div className="flex items-center space-x-2 pt-2">
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    setProgress(0)
-                    setLogs([])
-                  }}
-                  className="flex-1"
-                >
-                  Reset
+                <Button variant="outline" onClick={() => { setLogs([]); }} className="flex-1">
+                  Clear Logs
                 </Button>
-                <Button
-                  variant="secondary"
-                  onClick={() => {
-                    localStorage.removeItem("ketilabel_training_data")
-                    setData(null)
-                  }}
-                  className="flex-1"
-                >
-                  Clear Data
-                </Button>
+                {jobId && (
+                  <Button variant="secondary" onClick={() => deleteJob(jobId)} className="flex-1">
+                    <Trash2 className="mr-2 h-4 w-4" /> Cancel/Delete
+                  </Button>
+                )}
               </div>
             </CardContent>
           </Card>
         </div>
+
+        {/* Jobs List */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center">Jobs <Button variant="ghost" size="sm" onClick={refreshJobs}><RefreshCw className="h-4 w-4" /></Button></CardTitle>
+            <CardDescription>Pick a job to monitor</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="max-h-64 overflow-y-auto space-y-2">
+              {jobs.length === 0 ? (
+                <div className="text-sm text-muted-foreground">No jobs</div>
+              ) : (
+                jobs.map((j) => (
+                  <div key={j.job_id} className={`p-2 border rounded flex items-center justify-between ${jobId === j.job_id ? 'bg-primary/5 border-primary' : ''}`}>
+                    <div className="text-sm truncate pr-2">
+                      <div className="font-medium">{j.model_name || j.job_id}</div>
+                      <div className="text-xs text-muted-foreground">{j.annotation_filename} • {j.status} • {j.progress}%</div>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <Button size="sm" variant="outline" onClick={() => { localStorage.setItem('ketilabel_training_job_id', j.job_id); setJobId(j.job_id) }}>Monitor</Button>
+                      <Button size="sm" variant="ghost" onClick={() => deleteJob(j.job_id)}><Trash2 className="h-4 w-4" /></Button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </CardContent>
+        </Card>
 
         {/* Logs */}
         <Card>
@@ -198,4 +292,3 @@ export default function TrainingMonitorPage() {
     </div>
   )
 }
-

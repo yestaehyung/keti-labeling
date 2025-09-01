@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useState, useCallback } from "react"
+import { useState, useCallback, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -48,6 +48,8 @@ export default function TrainingPage() {
     learningRate: 0.001,
     batchSize: 16
   })
+  const [imgSize, setImgSize] = useState<number>(640)
+  const [modelName, setModelName] = useState<string>("my_button_detector")
   const [isValidating, setIsValidating] = useState(false)
   const { toast } = useToast()
 
@@ -221,11 +223,46 @@ export default function TrainingPage() {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
   }
 
-  // Testing mode: allow starting without uploaded JSON files
+  // Testing mode remains available if no server annotation selected
   const testingMode = true
-  const canStartTraining = testingMode || uploadedFiles.length > 0
+  const canStartTraining = testingMode || uploadedFiles.length > 0 || selectedServerAnnotations.length > 0
 
-  const handleStartTraining = () => {
+  const handleStartTraining = async () => {
+    // If a server-side annotation file is selected, start a real training job
+    if (selectedServerAnnotations.length > 0) {
+      const annotationFilename = selectedServerAnnotations[0]
+      try {
+        const res = await apiCall(API_CONFIG.ENDPOINTS.TRAIN_START, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            annotation_filename: annotationFilename,
+            epochs: trainingConfig.epochs,
+            batch_size: trainingConfig.batchSize,
+            img_size: imgSize,
+            model_name: modelName || `ketilabel_${Date.now()}`,
+          }),
+        })
+        if (!res.ok) throw new Error(`Training start failed (${res.status})`)
+        const data = await res.json()
+        toast({ title: "Training started", description: data.message || "Job created" })
+
+        // Persist job and config
+        localStorage.setItem('ketilabel_training_job_id', data.job_id)
+        localStorage.setItem('ketilabel_training_data', JSON.stringify({
+          files: uploadedFiles,
+          config: { ...trainingConfig, imgSize, modelName },
+          startTime: new Date().toISOString(),
+          annotationFilename,
+        }))
+        window.location.href = '/training/monitor'
+        return
+      } catch (e) {
+        toast({ variant: "destructive", title: "Failed to start training", description: e instanceof Error ? e.message : String(e) })
+      }
+    }
+
+    // Otherwise fall back to testing mode (no server job)
     if (uploadedFiles.length === 0) {
       toast({
         title: "Testing mode",
@@ -233,14 +270,11 @@ export default function TrainingPage() {
       })
     }
 
-    // Store training data and config in localStorage
     localStorage.setItem('ketilabel_training_data', JSON.stringify({
       files: uploadedFiles,
-      config: trainingConfig,
+      config: { ...trainingConfig, imgSize, modelName },
       startTime: new Date().toISOString()
     }))
-
-    // Navigate to training monitor
     window.location.href = '/training/monitor'
   }
 
@@ -502,6 +536,31 @@ export default function TrainingPage() {
                     </SelectContent>
                   </Select>
                 </div>
+
+                <div>
+                  <Label htmlFor="img-size">Image Size</Label>
+                  <Input
+                    id="img-size"
+                    type="number"
+                    value={imgSize}
+                    onChange={(e) => setImgSize(parseInt(e.target.value) || 640)}
+                    min={64}
+                    max={2048}
+                    className="mt-2"
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="model-name">Model Name</Label>
+                  <Input
+                    id="model-name"
+                    type="text"
+                    value={modelName}
+                    onChange={(e) => setModelName(e.target.value)}
+                    placeholder="my_button_detector"
+                    className="mt-2"
+                  />
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -516,7 +575,7 @@ export default function TrainingPage() {
               <Play className="mr-2 h-5 w-5" />
               Start Training
             </Button>
-            {uploadedFiles.length === 0 && (
+            {uploadedFiles.length === 0 && selectedServerAnnotations.length === 0 && (
               <p className="text-sm text-muted-foreground mt-2 flex items-center justify-center">
                 <AlertCircle className="h-4 w-4 mr-1" />
                 Testing mode enabled: You can start without uploads
