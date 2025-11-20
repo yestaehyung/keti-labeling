@@ -50,6 +50,16 @@ interface AdvancedPolygonVisualizationProps {
   classes?: ClassDefinition[]
   selectedClassId?: string | null
   onClassAssign?: (polygonId: string, classId: string) => void
+  selectedPolygonId: string | null
+  onSelectPolygon: (id: string | null) => void
+  // New props for controlled state
+  zoom: number
+  onZoomChange: (zoom: number) => void
+  pan: { x: number; y: number }
+  onPanChange: (pan: { x: number; y: number }) => void
+  interactionMode: 'pan' | 'point' | 'select'
+  onInteractionModeChange: (mode: 'pan' | 'point' | 'select') => void
+  className?: string
 }
 
 export default function AdvancedPolygonVisualization({
@@ -69,13 +79,20 @@ export default function AdvancedPolygonVisualization({
   classes = [],
   selectedClassId,
   onClassAssign,
+  selectedPolygonId,
+  onSelectPolygon,
+  zoom,
+  onZoomChange,
+  pan,
+  onPanChange,
+  interactionMode,
+  onInteractionModeChange,
+  className,
 }: AdvancedPolygonVisualizationProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
-  const [zoom, setZoom] = useState(1)
-  const [pan, setPan] = useState({ x: 0, y: 0 })
-  const [selectedPolygon, setSelectedPolygon] = useState<string | null>(null)
-  const [selectedPolygons, setSelectedPolygons] = useState<Set<string>>(new Set())
+  // Removed internal state for zoom, pan, interactionMode
+  // selectedPolygon state lifted to props
   const [polygons, setPolygons] = useState<PolygonData[]>([])
   const [showLabels, setShowLabels] = useState(true)
   const [opacity, setOpacity] = useState([0.3])
@@ -83,7 +100,6 @@ export default function AdvancedPolygonVisualization({
   const [segmentationVisible, setSegmentationVisible] = useState(true)
   const [isPanning, setIsPanning] = useState(false)
   const [lastPanPoint, setLastPanPoint] = useState({ x: 0, y: 0 })
-  const [interactionMode, setInteractionMode] = useState<'pan' | 'point'>('point')
   const { toast } = useToast()
 
   // Initialize polygons with enhanced properties
@@ -128,66 +144,90 @@ export default function AdvancedPolygonVisualization({
 
   // Handle polygon selection separately to avoid unnecessary re-renders
   useEffect(() => {
-    if (polygons.length > 0 && !selectedPolygon) {
-      setSelectedPolygon(polygons[0].id!)
-      onPolygonSelect?.(polygons[0])
+    if (polygons.length > 0 && !selectedPolygonId) {
+      onSelectPolygon(polygons[0].id!)
     }
-  }, [polygons.length, selectedPolygon, onPolygonSelect])
+  }, [polygons.length, selectedPolygonId, onSelectPolygon])
 
 
   // Handle wheel event for zooming
   const handleWheel = useCallback((event: WheelEvent) => {
     event.preventDefault()
     const delta = event.deltaY > 0 ? 0.9 : 1.1
-    setZoom((prev) => Math.max(0.1, Math.min(5, prev * delta)))
-  }, [])
+    onZoomChange(Math.max(0.1, Math.min(5, zoom * delta)))
+  }, [zoom, onZoomChange])
 
   // Handle keyboard shortcuts for class assignment
   const handleKeyDown = useCallback((event: KeyboardEvent) => {
-    // Only handle shortcuts when in the labeling workspace and a polygon is selected
-    if (!selectedPolygon || !onClassAssign) return
-    
-    const key = event.key
-    
-    // Handle number keys 1-9 for button_1 to button_9
-    if (key >= '1' && key <= '9') {
-      event.preventDefault()
-      const classIndex = parseInt(key) - 1
-      const targetClass = classes[classIndex]
-      
-      if (targetClass) {
-        onClassAssign(selectedPolygon, targetClass.id)
-        toast({
-          title: "Class assigned",
-          description: `Assigned "${targetClass.name}" to selected polygon using shortcut ${key}.`,
-        })
+    // Ignore shortcuts while typing in form fields to avoid stealing keystrokes
+    const target = event.target as HTMLElement | null
+    if (target) {
+      const tagName = target.tagName
+      if (
+        tagName === "INPUT" ||
+        tagName === "TEXTAREA" ||
+        target.getAttribute("contenteditable") === "true" ||
+        target.isContentEditable
+      ) {
+        return
       }
     }
+
+    // Only handle shortcuts when in the labeling workspace and a polygon is selected
+    if (!selectedPolygonId || !onClassAssign) return
+
+    const key = event.key
     
-    // Handle 0 for button_10
-    if (key === '0') {
-      event.preventDefault()
-      const targetClass = classes[9] // button_10 is at index 9
-      
-      if (targetClass) {
-        onClassAssign(selectedPolygon, targetClass.id)
+    // Handle number keys for class assignment
+    if (['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'].includes(key)) {
+      if (!selectedPolygonId) {
         toast({
-          title: "Class assigned",
-          description: `Assigned "${targetClass.name}" to selected polygon using shortcut ${key}.`,
+          title: "No polygon selected",
+          description: "Please select a polygon to assign a class.",
+          variant: "destructive"
         })
+        return
+      }
+
+      if (key === '0') {
+        event.preventDefault()
+        const targetClass = classes[9] // button_10 is at index 9
+        
+        if (targetClass) {
+          onClassAssign?.(selectedPolygonId, targetClass.id)
+          toast({
+            title: "Class assigned",
+            description: `Assigned "${targetClass.name}" to selected polygon using shortcut ${key}.`,
+          })
+        }
+      } else {
+        // 1-9
+        event.preventDefault()
+        const index = parseInt(key) - 1
+        const targetClass = classes[index]
+        
+        if (targetClass) {
+          onClassAssign?.(selectedPolygonId, targetClass.id)
+          toast({
+            title: "Class assigned",
+            description: `Assigned "${targetClass.name}" to selected polygon using shortcut ${key}.`,
+          })
+        }
       }
     }
     
     // Handle Backspace to remove class assignment
     if (key === 'Backspace') {
-      event.preventDefault()
-      onClassAssign(selectedPolygon, '')
-      toast({
-        title: "Class removed",
-        description: "Removed class assignment from selected polygon.",
-      })
+      if (selectedPolygonId) {
+        event.preventDefault()
+        onClassAssign?.(selectedPolygonId, '')
+        toast({
+          title: "Class removed",
+          description: "Removed class assignment from selected polygon.",
+        })
+      }
     }
-  }, [selectedPolygon, onClassAssign, classes, toast])
+  }, [selectedPolygonId, onClassAssign, classes, toast])
 
   // Add wheel event listener to canvas with passive: false
   useEffect(() => {
@@ -257,10 +297,11 @@ export default function AdvancedPolygonVisualization({
 
       // Draw polygons
       polygons.forEach((polygon) => {
-        if (!polygon.visible) return
-
-        const isSelected = selectedPolygon === polygon.id
-        const color = polygon.color || "#0891b2"
+          if (!ctx) return
+          if (!polygon.visible) return
+          
+          const isSelected = selectedPolygonId === polygon.id
+          const color = polygon.color || "#0891b2"
 
         // Set polygon segmentation style
         const segmentationOpacity = opacity[0]
@@ -304,7 +345,7 @@ export default function AdvancedPolygonVisualization({
                 Array.isArray(polygon.segmentation[0]) && 
                 typeof polygon.segmentation[0][0] === 'boolean') {
               // 2D boolean mask - draw filled pixels
-              const mask = polygon.segmentation as boolean[][]
+              const mask = polygon.segmentation as unknown as boolean[][]
               const [bboxX, bboxY, bboxWidth, bboxHeight] = polygon.bbox
               
               for (let y = 0; y < mask.length; y++) {
@@ -341,7 +382,7 @@ export default function AdvancedPolygonVisualization({
               } else if (Array.isArray(polygon.segmentation[0])) {
                 console.log('Drawing coordinate pairs:', polygon.segmentation)
                 // Array of coordinate pairs [[x1, y1], [x2, y2], ...]
-                polygon.segmentation.forEach((point: any, i: number) => {
+                ;(polygon.segmentation as any[]).forEach((point: any, i: number) => {
                   if (Array.isArray(point) && point.length >= 2) {
                     const x = offsetX + point[0] * scale
                     const y = offsetY + point[1] * scale
@@ -391,90 +432,7 @@ export default function AdvancedPolygonVisualization({
           ctx.restore()
         }
         
-        if (false && shouldShowSegmentation && polygon.segmentation) {
-          ctx.save()
-          
-          // Convert mask to polygon if needed
-          if (Array.isArray(polygon.segmentation) && Array.isArray(polygon.segmentation[0]) && 
-              typeof polygon.segmentation[0][0] === 'boolean') {
-            // 2D mask format - convert to filled shape using bbox
-            const mask = polygon.segmentation as boolean[][]
-            const [bboxX, bboxY, bboxWidth, bboxHeight] = polygon.bbox
-            
-            // Simply fill the entire bbox area for mask data
-            const scaledX = offsetX + bboxX * scale
-            const scaledY = offsetY + bboxY * scale
-            const scaledWidth = bboxWidth * scale
-            const scaledHeight = bboxHeight * scale
-            
-            // Create a circular/oval shape within bbox
-            const centerX = scaledX + scaledWidth / 2
-            const centerY = scaledY + scaledHeight / 2
-            const radiusX = scaledWidth / 2.5
-            const radiusY = scaledHeight / 2.5
-            
-            ctx.beginPath()
-            ctx.ellipse(centerX, centerY, radiusX, radiusY, 0, 0, 2 * Math.PI)
-            ctx.closePath()
-            ctx.fill()
-            ctx.stroke()
-            
-          } else if (Array.isArray(polygon.segmentation)) {
-            // Standard polygon coordinate format
-            ctx.beginPath()
-            let hasValidPath = false
 
-            if (typeof polygon.segmentation[0] === "number" && polygon.segmentation.length >= 6) {
-              // Flat array format [x1, y1, x2, y2, ...]
-              for (let i = 0; i < polygon.segmentation.length; i += 2) {
-                if (i + 1 < polygon.segmentation.length) {
-                  const x = offsetX + (polygon.segmentation[i] as number) * scale
-                  const y = offsetY + (polygon.segmentation[i + 1] as number) * scale
-                  if (i === 0) {
-                    ctx.moveTo(x, y)
-                  } else {
-                    ctx.lineTo(x, y)
-                  }
-                  hasValidPath = true
-                }
-              }
-            } else if (Array.isArray(polygon.segmentation[0]) && polygon.segmentation.length >= 3) {
-              // Array of coordinate pairs [[x1, y1], [x2, y2], ...]
-              polygon.segmentation.forEach((point: number[], i: number) => {
-                if (Array.isArray(point) && point.length >= 2) {
-                  const x = offsetX + point[0] * scale
-                  const y = offsetY + point[1] * scale
-                  if (i === 0) {
-                    ctx.moveTo(x, y)
-                  } else {
-                    ctx.lineTo(x, y)
-                  }
-                  hasValidPath = true
-                }
-              })
-            }
-
-            if (hasValidPath) {
-              ctx.closePath()
-              
-              // Fill segmentation area
-              ctx.fill()
-              
-              // Stroke segmentation outline
-              ctx.stroke()
-              
-              // Add white outline for better visibility when selected
-              if (isSelected) {
-                ctx.strokeStyle = 'white'
-                ctx.lineWidth = 1
-                ctx.shadowBlur = 0
-                ctx.stroke()
-              }
-            }
-          }
-          
-          ctx.restore()
-        }
 
         // Bounding box drawing removed per user request
         const shouldDrawBbox = false
@@ -592,7 +550,7 @@ export default function AdvancedPolygonVisualization({
     }
 
     img.src = imageUrl
-  }, [imageUrl, polygons, imageWidth, imageHeight, zoom, pan, selectedPolygon, showLabels, opacity])
+  }, [imageUrl, polygons, imageWidth, imageHeight, zoom, pan, selectedPolygonId, showLabels, opacity, segmentationVisible, polygonDisplayMode])
 
   // Trigger drawing when dependencies change, but with debouncing
   useEffect(() => {
@@ -601,13 +559,83 @@ export default function AdvancedPolygonVisualization({
     }, 16) // ~60fps
     
     return () => clearTimeout(timeoutId)
-  }, [imageUrl, polygons, zoom, pan, selectedPolygon, showLabels, opacity])
+  }, [imageUrl, polygons, zoom, pan, selectedPolygonId, showLabels, opacity, segmentationVisible, polygonDisplayMode, drawVisualization])
+
+  // Helper to check if a point is inside a polygon
+  const isPointInPolygon = (x: number, y: number, polygon: PolygonData): boolean => {
+    // 1. Quick BBox check
+    if (polygon.bbox) {
+      const [bx, by, bw, bh] = polygon.bbox
+      if (x < bx || x > bx + bw || y < by || y > by + bh) {
+        return false
+      }
+    }
+
+    // 2. Detailed Segmentation check
+    if (!polygon.segmentation) return true // If no segmentation, fallback to bbox match (which passed)
+
+    if (Array.isArray(polygon.segmentation)) {
+      // Case A: 2D Boolean Mask
+      if (polygon.segmentation.length > 0 && 
+          Array.isArray(polygon.segmentation[0]) && 
+          typeof polygon.segmentation[0][0] === 'boolean') {
+        
+        const mask = polygon.segmentation as unknown as boolean[][]
+        const [bx, by, bw, bh] = polygon.bbox
+        
+        // Map global x,y to mask coordinates
+        // Mask covers the bbox area
+        const maskWidth = mask[0].length
+        const maskHeight = mask.length
+        
+        const relativeX = x - bx
+        const relativeY = y - by
+        
+        const maskX = Math.floor((relativeX / bw) * maskWidth)
+        const maskY = Math.floor((relativeY / bh) * maskHeight)
+        
+        if (maskY >= 0 && maskY < maskHeight && maskX >= 0 && maskX < maskWidth) {
+          return mask[maskY][maskX]
+        }
+        return false
+      }
+      
+      // Case B: Flat Coordinate Array [x1, y1, x2, y2, ...]
+      if (typeof polygon.segmentation[0] === 'number') {
+        const points = polygon.segmentation as number[]
+        let inside = false
+        for (let i = 0, j = points.length - 2; i < points.length; j = i, i += 2) {
+          const xi = points[i], yi = points[i + 1]
+          const xj = points[j], yj = points[j + 1]
+          
+          const intersect = ((yi > y) !== (yj > y)) &&
+            (x < (xj - xi) * (y - yi) / (yj - yi) + xi)
+          if (intersect) inside = !inside
+        }
+        return inside
+      }
+      
+      // Case C: Array of Coordinate Pairs [[x1, y1], [x2, y2], ...]
+      if (Array.isArray(polygon.segmentation[0])) {
+        const points = polygon.segmentation as number[][]
+        let inside = false
+        for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+          const xi = points[i][0], yi = points[i][1]
+          const xj = points[j][0], yj = points[j][1]
+          
+          const intersect = ((yi > y) !== (yj > y)) &&
+            (x < (xj - xi) * (y - yi) / (yj - yi) + xi)
+          if (intersect) inside = !inside
+        }
+        return inside
+      }
+    }
+
+    return false
+  }
 
   // Handle canvas interactions - mode-based
   const handleCanvasClick = (event: React.MouseEvent<HTMLCanvasElement>) => {
-    // Only handle point selection in point mode
-    if (interactionMode !== 'point' || isProcessing || !onPointClick) return
-
     const canvas = canvasRef.current
     if (!canvas) return
 
@@ -622,9 +650,9 @@ export default function AdvancedPolygonVisualization({
     const scale = baseScale * zoom
 
     const scaledImageWidth = imageWidth * scale
-    const scaledImageHeight = imageHeight * scale
+    // const scaledImageHeight = imageHeight * scale // Unused
     const offsetX = (canvas.width - scaledImageWidth) / 2 + pan.x
-    const offsetY = (canvas.height - scaledImageHeight) / 2 + pan.y
+    const offsetY = (canvas.height - (imageHeight * scale)) / 2 + pan.y
 
     // Convert click coordinates to image coordinates
     const imageX = (clickX - offsetX) / scale
@@ -635,8 +663,26 @@ export default function AdvancedPolygonVisualization({
       const realX = Math.round(imageX)
       const realY = Math.round(imageY)
       
-      console.log("🖱️ Canvas clicked for point segmentation:", { realX, realY })
-      onPointClick(realX, realY)
+      if (interactionMode === 'point') {
+        if (isProcessing || !onPointClick) return
+        console.log("🖱️ Canvas clicked for point segmentation:", { realX, realY })
+        onPointClick(realX, realY)
+      } else if (interactionMode === 'select') {
+        // Find clicked polygon
+        // Iterate in reverse to select the top-most polygon (last rendered)
+        const clickedPolygon = [...polygons].reverse().find(polygon => {
+          if (!polygon.visible) return false
+          return isPointInPolygon(realX, realY, polygon)
+        })
+
+        if (clickedPolygon) {
+          console.log("🎯 Polygon selected:", clickedPolygon.id)
+          onSelectPolygon(clickedPolygon.id!)
+        } else {
+          console.log("❌ No polygon found at click")
+          onSelectPolygon(null)
+        }
+      }
     }
   }
 
@@ -658,7 +704,7 @@ export default function AdvancedPolygonVisualization({
     if (isPanning) {
       const deltaX = event.clientX - lastPanPoint.x
       const deltaY = event.clientY - lastPanPoint.y
-      setPan((prev) => ({ x: prev.x + deltaX, y: prev.y + deltaY }))
+      onPanChange({ x: pan.x + deltaX, y: pan.y + deltaY })
       setLastPanPoint({ x: event.clientX, y: event.clientY })
     }
   }
@@ -667,213 +713,15 @@ export default function AdvancedPolygonVisualization({
     setIsPanning(false)
   }
 
-  const resetView = () => {
-    setZoom(1)
-    setPan({ x: 0, y: 0 })
-    setSelectedPolygon(null)
-  }
 
-  const togglePolygonVisibility = useCallback((polygonId: string) => {
-    setPolygons((prev) => {
-      const updated = prev.map((p) => (p.id === polygonId ? { ...p, visible: !p.visible } : p))
-      // Schedule the update for next render cycle
-      setTimeout(() => onPolygonUpdate?.(updated), 0)
-      return updated
-    })
-  }, [onPolygonUpdate])
 
-  const selectPreviousPolygon = useCallback(() => {
-    if (polygons.length === 0) return
-    
-    const currentIndex = selectedPolygon 
-      ? polygons.findIndex(p => p.id === selectedPolygon)
-      : -1
-    
-    const previousIndex = currentIndex <= 0 ? polygons.length - 1 : currentIndex - 1
-    const previousPolygon = polygons[previousIndex]
-    
-    setSelectedPolygon(previousPolygon.id!)
-    onPolygonSelect?.(previousPolygon)
-  }, [polygons, selectedPolygon, onPolygonSelect])
 
-  const selectNextPolygon = useCallback(() => {
-    if (polygons.length === 0) return
-    
-    const currentIndex = selectedPolygon 
-      ? polygons.findIndex(p => p.id === selectedPolygon)
-      : -1
-    
-    const nextIndex = currentIndex >= polygons.length - 1 ? 0 : currentIndex + 1
-    const nextPolygon = polygons[nextIndex]
-    
-    setSelectedPolygon(nextPolygon.id!)
-    onPolygonSelect?.(nextPolygon)
-  }, [polygons, selectedPolygon, onPolygonSelect])
-
-  const togglePolygonSelection = useCallback((polygonId: string) => {
-    setSelectedPolygons(prev => {
-      const newSet = new Set(prev)
-      if (newSet.has(polygonId)) {
-        newSet.delete(polygonId)
-      } else {
-        newSet.add(polygonId)
-      }
-      return newSet
-    })
-  }, [])
-
-  const selectAllPolygons = useCallback(() => {
-    setSelectedPolygons(new Set(polygons.map(p => p.id!)))
-  }, [polygons])
-
-  const deselectAllPolygons = useCallback(() => {
-    setSelectedPolygons(new Set())
-  }, [])
-
-  const exportToCoco = async () => {
-    if (selectedPolygons.size === 0) {
-      toast({
-        variant: "destructive",
-        title: "No Polygons Selected",
-        description: "Please select at least one polygon to export.",
-      })
-      return
-    }
-
-    const selectedPolygonsList = polygons.filter(p => selectedPolygons.has(p.id!))
-    
-    try {
-      // Prepare data for API call
-      const requestData = {
-        image: {
-          width: imageWidth,
-          height: imageHeight,
-          url: imageUrl,
-        },
-        polygons: selectedPolygonsList
-          .filter((p) => p.visible)
-          .map((p) => ({
-            id: p.id,
-            label: p.label,
-            segmentation: p.segmentation,
-            bbox: p.bbox,
-            area: p.area,
-            predicted_iou: p.predicted_iou,
-            stability_score: p.stability_score,
-          })),
-        metadata: {
-          exported_at: new Date().toISOString(),
-          total_polygons: selectedPolygonsList.filter((p) => p.visible).length,
-          selected_polygons: selectedPolygons.size,
-        },
-      }
-
-      toast({
-        title: "Converting to COCO",
-        description: "Sending data to server for COCO conversion...",
-      })
-
-      // Call API
-      const response = await apiCall(API_CONFIG.ENDPOINTS.CONVERT_TO_COCO, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(requestData),
-      })
-
-      if (!response.ok) {
-        throw new Error(`Server error: ${response.status} ${response.statusText}`)
-      }
-
-      const cocoData = await response.json()
-
-      // Download COCO JSON
-      const blob = new Blob([JSON.stringify(cocoData, null, 2)], {
-        type: "application/json",
-      })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement("a")
-      a.href = url
-      a.download = `coco_annotations_${Date.now()}.json`
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      URL.revokeObjectURL(url)
-
-      toast({
-        title: "COCO Export Successful",
-        description: `Exported ${requestData.polygons.length} polygons in COCO format`,
-      })
-    } catch (error) {
-      console.error("COCO conversion error:", error)
-      toast({
-        variant: "destructive",
-        title: "COCO Conversion Failed",
-        description: (error as Error).message,
-      })
-    }
-  }
-
-  const exportAnnotations = () => {
-    const selectedPolygonsList = polygons.filter(p => selectedPolygons.has(p.id!))
-    const annotations = {
-      image: {
-        width: imageWidth,
-        height: imageHeight,
-        url: imageUrl,
-      },
-      polygons: selectedPolygonsList
-        .filter((p) => p.visible)
-        .map((p) => ({
-          id: p.id,
-          label: p.label,
-          segmentation: p.segmentation,
-          bbox: p.bbox,
-          area: p.area,
-          predicted_iou: p.predicted_iou,
-          stability_score: p.stability_score,
-          classId: p.classId,
-          className: p.className,
-          classColor: p.classColor,
-        })),
-      metadata: {
-        exported_at: new Date().toISOString(),
-        total_polygons: selectedPolygonsList.filter((p) => p.visible).length,
-        selected_polygons: selectedPolygons.size,
-        classes: classes.map(cls => ({
-          id: cls.id,
-          name: cls.name,
-          color: cls.color,
-          count: selectedPolygonsList.filter(p => p.visible && p.classId === cls.id).length
-        })).filter(cls => cls.count > 0),
-      },
-    }
-
-    const blob = new Blob([JSON.stringify(annotations, null, 2)], {
-      type: "application/json",
-    })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement("a")
-    a.href = url
-    a.download = `annotations-${Date.now()}.json`
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    URL.revokeObjectURL(url)
-
-    toast({
-      title: "Selected Annotations Exported",
-      description: `Exported ${annotations.polygons.length} selected polygons to JSON file`,
-    })
-  }
 
   return (
-    <div className="space-y-4">
-      {/* Visualization Canvas */}
-      <div ref={containerRef} className="relative w-full h-[600px] bg-muted rounded-lg overflow-hidden border">
-        <canvas
-          ref={canvasRef}
+    <>
+    <div ref={containerRef} className={`relative w-full bg-muted/10 rounded-lg overflow-hidden cursor-crosshair touch-none ${className || 'h-[600px]'}`}>
+      <canvas
+        ref={canvasRef}
           className={`absolute inset-0 w-full h-full ${
             isPanning 
               ? 'cursor-grabbing' 
@@ -889,38 +737,7 @@ export default function AdvancedPolygonVisualization({
           style={{ imageRendering: "pixelated" }}
         />
 
-        {/* Interaction Mode Controls */}
-        <div className="absolute top-4 left-4 flex flex-col space-y-2">
-          <Button
-            size="sm"
-            variant={interactionMode === 'pan' ? 'default' : 'secondary'}
-            onClick={() => setInteractionMode('pan')}
-            title="Pan mode - Drag to move image"
-          >
-            <Hand className="h-4 w-4" />
-          </Button>
-          <Button
-            size="sm"
-            variant={interactionMode === 'point' ? 'default' : 'secondary'}
-            onClick={() => setInteractionMode('point')}
-            title="Point mode - Click to create polygons"
-          >
-            <Target className="h-4 w-4" />
-          </Button>
-        </div>
 
-        {/* Zoom Controls */}
-        <div className="absolute top-4 right-4 flex flex-col space-y-2">
-          <Button size="sm" variant="secondary" onClick={() => setZoom((prev) => Math.min(5, prev * 1.2))}>
-            <ZoomIn className="h-4 w-4" />
-          </Button>
-          <Button size="sm" variant="secondary" onClick={() => setZoom((prev) => Math.max(0.1, prev * 0.8))}>
-            <ZoomOut className="h-4 w-4" />
-          </Button>
-          <Button size="sm" variant="secondary" onClick={resetView}>
-            <RotateCcw className="h-4 w-4" />
-          </Button>
-        </div>
 
         {/* Processing Overlay */}
         {isProcessing && (
@@ -946,264 +763,6 @@ export default function AdvancedPolygonVisualization({
           </div>
         )}
       </div>
-
-      {/* Control Panel */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Display Controls */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center">
-              <Settings className="mr-2 h-4 w-4" />
-              Display Controls
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {/* Segmentation Controls */}
-            <div className="space-y-3 pb-3 border-b">
-              <div className="flex items-center justify-between">
-                <Label htmlFor="show-segmentation" className="text-sm font-medium">Segmentation</Label>
-                <Switch id="show-segmentation" checked={segmentationVisible} onCheckedChange={setSegmentationVisible} />
-              </div>
-              {segmentationVisible && (
-                <div className="space-y-2">
-                  <Label className="text-xs text-muted-foreground">Opacity: {Math.round(opacity[0] * 100)}%</Label>
-                  <Slider value={opacity} onValueChange={setOpacity} max={1} min={0.05} step={0.05} className="w-full" />
-                </div>
-              )}
-            </div>
-
-            {/* Polygon Display Mode Controls */}
-            <div className="space-y-3 pb-3 border-b">
-              <Label className="text-sm font-medium">Polygon Display</Label>
-              <div className="grid grid-cols-2 gap-1">
-                <Button
-                  size="sm"
-                  variant={polygonDisplayMode === 'all' ? 'default' : 'outline'}
-                  onClick={() => setPolygonDisplayMode('all')}
-                  className="text-xs"
-                >
-                  All Polygons
-                </Button>
-                <Button
-                  size="sm"
-                  variant={polygonDisplayMode === 'selected' ? 'default' : 'outline'}
-                  onClick={() => setPolygonDisplayMode('selected')}
-                  className="text-xs"
-                >
-                  Selected Only
-                </Button>
-              </div>
-            </div>
-
-            {/* Other Controls */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <Label htmlFor="show-labels" className="text-sm">Labels</Label>
-                <Switch id="show-labels" checked={showLabels} onCheckedChange={setShowLabels} />
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <div className="grid grid-cols-2 gap-2">
-                <Button 
-                  size="sm" 
-                  variant="outline" 
-                  onClick={exportAnnotations} 
-                  className="bg-transparent"
-                  disabled={selectedPolygons.size === 0}
-                  title={selectedPolygons.size === 0 ? "Select polygons to export" : `Export ${selectedPolygons.size} selected polygons as JSON`}
-                >
-                  <Download className="mr-1 h-3 w-3" />
-                  JSON ({selectedPolygons.size})
-                </Button>
-                <Button 
-                  size="sm" 
-                  variant="default" 
-                  onClick={exportToCoco} 
-                  disabled={selectedPolygons.size === 0}
-                  title={selectedPolygons.size === 0 ? "Select polygons to export" : `Export ${selectedPolygons.size} selected polygons as COCO`}
-                >
-                  <Download className="mr-1 h-3 w-3" />
-                  COCO ({selectedPolygons.size})
-                </Button>
-              </div>
-              <Button size="sm" variant="outline" onClick={resetView} className="w-full bg-transparent">
-                <RotateCcw className="mr-2 h-3 w-3" />
-                Reset View
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Polygon List */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center justify-between">
-              <div className="flex items-center">
-                <Layers className="mr-2 h-4 w-4" />
-                Polygons ({polygons.length})
-              </div>
-              {polygons.length > 1 && (
-                <div className="flex items-center space-x-1 bg-muted/30 rounded-md px-2 py-1">
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={selectPreviousPolygon}
-                    className="h-6 w-6 p-0"
-                    title="Previous polygon"
-                  >
-                    <ChevronUp className="h-3 w-3" />
-                  </Button>
-                  <span className="text-xs text-muted-foreground px-1 min-w-[30px] text-center">
-                    {selectedPolygon ? polygons.findIndex(p => p.id === selectedPolygon) + 1 : 1}/{polygons.length}
-                  </span>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={selectNextPolygon}
-                    className="h-6 w-6 p-0"
-                    title="Next polygon"
-                  >
-                    <ChevronDown className="h-3 w-3" />
-                  </Button>
-                </div>
-              )}
-            </CardTitle>
-            {polygons.length > 0 && (
-              <div className="flex items-center justify-between text-sm">
-                <div className="flex items-center space-x-2">
-                  <Checkbox
-                    id="select-all-polygons"
-                    checked={selectedPolygons.size === polygons.length}
-                    onCheckedChange={(checked) => {
-                      if (checked) {
-                        selectAllPolygons()
-                      } else {
-                        deselectAllPolygons()
-                      }
-                    }}
-                  />
-                  <Label htmlFor="select-all-polygons" className="text-xs">
-                    Select All ({selectedPolygons.size}/{polygons.length})
-                  </Label>
-                </div>
-                {selectedPolygons.size > 0 && (
-                  <div className="flex space-x-1">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={exportAnnotations}
-                      className="text-xs h-7"
-                    >
-                      <Download className="mr-1 h-3 w-3" />
-                      JSON
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="default"
-                      onClick={exportToCoco}
-                      className="text-xs h-7"
-                    >
-                      <Download className="mr-1 h-3 w-3" />
-                      COCO
-                    </Button>
-                  </div>
-                )}
-              </div>
-            )}
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-2 max-h-64 overflow-y-auto">
-              {polygons.map((polygon) => (
-                <div
-                  key={polygon.id}
-                  className={`flex items-center justify-between p-2 rounded-lg border transition-colors ${
-                    selectedPolygon === polygon.id ? "bg-primary/10 border-primary" : "bg-muted/50 hover:bg-muted"
-                  }`}
-                >
-                  <div className="flex items-center space-x-2">
-                    <Checkbox
-                      checked={selectedPolygons.has(polygon.id!)}
-                      onCheckedChange={() => togglePolygonSelection(polygon.id!)}
-                      onClick={(e) => e.stopPropagation()}
-                    />
-                    <div 
-                      className="w-4 h-4 rounded border-2 cursor-pointer" 
-                      style={{ backgroundColor: polygon.color }}
-                      onClick={() => {
-                        setSelectedPolygon(polygon.id!)
-                        onPolygonSelect?.(polygon)
-                      }}
-                    />
-                    <div 
-                      className="cursor-pointer flex-1"
-                      onClick={() => {
-                        setSelectedPolygon(polygon.id!)
-                        onPolygonSelect?.(polygon)
-                      }}
-                    >
-                      <div className="text-sm font-medium">{polygon.label}</div>
-                      <div className="text-xs text-muted-foreground">
-                        {polygon.className ? (
-                          <span className="flex items-center">
-                            <Tag className="h-3 w-3 mr-1" />
-                            {polygon.className} • {Math.round(polygon.area || 0)}px²
-                          </span>
-                        ) : (
-                          <>Area: {Math.round(polygon.area || 0)}px²</>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center space-x-1">
-                    {classes.length > 0 && (
-                      <Select
-                        value={polygon.classId || "no-class"}
-                        onValueChange={(classId) => {
-                          const actualClassId = classId === "no-class" ? "" : classId
-                          onClassAssign?.(polygon.id!, actualClassId)
-                        }}
-                      >
-                        <SelectTrigger className="h-6 w-20 text-xs">
-                          <SelectValue placeholder="Class" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="no-class">No class</SelectItem>
-                          {classes.map((cls) => (
-                            <SelectItem key={cls.id} value={cls.id}>
-                              <div className="flex items-center space-x-2">
-                                <div 
-                                  className="w-3 h-3 rounded border"
-                                  style={{ backgroundColor: cls.color }}
-                                />
-                                <span>{cls.name}</span>
-                              </div>
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    )}
-                    <Badge variant="secondary" className="text-xs">
-                      {Math.round(polygon.area || 0)}px
-                    </Badge>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        togglePolygonVisibility(polygon.id!)
-                      }}
-                    >
-                      {polygon.visible ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}
-                    </Button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-    </div>
+    </>
   )
 }

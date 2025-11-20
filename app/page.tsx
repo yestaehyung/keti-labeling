@@ -1,19 +1,25 @@
-"use client"
+"use client";
 
-import type React from "react"
-import DragDropUpload from "@/components/drag-drop-upload"
-import ExportManager from "@/components/export-manager"
-import { useToast } from "@/hooks/use-toast"
-import ApiStatusMonitor from "@/components/api-status-monitor"
-import { apiCall, API_CONFIG } from "@/lib/api-config"
+import type React from "react";
+import DragDropUpload from "@/components/drag-drop-upload";
+import ExportManager from "@/components/export-manager";
+import { useToast } from "@/hooks/use-toast";
+import ApiStatusMonitor from "@/components/api-status-monitor";
+import { apiCall, API_CONFIG } from "@/lib/api-config";
 
-import { useEffect, useState } from "react"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { useEffect, useState, useCallback } from "react";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog,
   DialogContent,
@@ -21,7 +27,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-} from "@/components/ui/dialog"
+} from "@/components/ui/dialog";
 import {
   Moon,
   Sun,
@@ -33,139 +39,262 @@ import {
   Download,
   FileText,
   Brain,
-} from "lucide-react"
-import ImageGallery from "@/components/image-gallery"
-import LabelingWorkspace from "@/components/labeling-workspace"
-import Link from "next/link"
+} from "lucide-react";
+import ImageGallery from "@/components/image-gallery";
+import LabelingWorkspace from "@/components/labeling-workspace";
+import Link from "next/link";
 
 export default function Home() {
-  const [isDarkMode, setIsDarkMode] = useState(false)
-  const [selectedImage, setSelectedImage] = useState<string | null>(null)
-  const [images, setImages] = useState<string[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [uploadedClasses, setUploadedClasses] = useState<any[] | null>(null)
-  const [showUploadModal, setShowUploadModal] = useState(false)
-  const [showClassModal, setShowClassModal] = useState(false)
-  const [uploading, setUploading] = useState(false)
-  const [annotations, setAnnotations] = useState<Record<string, any[]>>({})
-  const { toast } = useToast()
+  const [isDarkMode, setIsDarkMode] = useState(false);
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [images, setImages] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [uploadedClasses, setUploadedClasses] = useState<any[] | null>(null);
+  const [showUploadModal, setShowUploadModal] = useState(false);
+  const [showClassModal, setShowClassModal] = useState(false);
+  const [uploading, setUploading] = useState(false);
+
+  const [annotations, setAnnotations] = useState<Record<string, any[]>>({});
+  const [activeTab, setActiveTab] = useState("gallery");
+  const { toast } = useToast();
 
   // Dark mode initialization
   useEffect(() => {
-    const savedDarkMode = localStorage.getItem("darkMode") === "true"
-    setIsDarkMode(savedDarkMode)
+    const savedDarkMode = localStorage.getItem("darkMode") === "true";
+    setIsDarkMode(savedDarkMode);
     if (savedDarkMode) {
-      document.documentElement.classList.add("dark")
+      document.documentElement.classList.add("dark");
     }
-  }, [])
+  }, []);
 
   // Save dark mode preference
   useEffect(() => {
-    localStorage.setItem("darkMode", isDarkMode.toString())
+    localStorage.setItem("darkMode", isDarkMode.toString());
     if (isDarkMode) {
-      document.documentElement.classList.add("dark")
+      document.documentElement.classList.add("dark");
     } else {
-      document.documentElement.classList.remove("dark")
+      document.documentElement.classList.remove("dark");
     }
-  }, [isDarkMode])
+  }, [isDarkMode]);
 
   // Load images
   useEffect(() => {
     apiCall(API_CONFIG.ENDPOINTS.IMAGES)
       .then((res) => {
-        if (!res.ok) throw new Error("Failed to load images")
-        return res.json()
+        if (!res.ok) throw new Error("Failed to load images");
+        return res.json();
       })
       .then((data) => {
-        setImages(data)
-        setLoading(false)
+        setImages(data);
+        setLoading(false);
       })
       .catch((err) => {
-        setError(err.message)
-        setLoading(false)
-      })
-  }, [])
+        setError(err.message);
+        setLoading(false);
+      });
+  }, []);
 
-  // Load annotations
+  const extractPolygonsFromPayload = (payload: any): any[] => {
+    if (Array.isArray(payload?.polygons)) return payload.polygons;
+    if (Array.isArray(payload?.data?.polygons)) return payload.data.polygons;
+    if (Array.isArray(payload?.annotations)) return payload.annotations;
+    return [];
+  };
+
+  const resolveImageNameFromPayload = (payload: any, filename: string) => {
+    const raw =
+      payload?.image?.url ||
+      payload?.image?.file_name ||
+      payload?.image?.filename ||
+      payload?.image?.name ||
+      "";
+
+    if (typeof raw === "string" && raw.trim().length > 0) {
+      const parts = raw.trim().split("/");
+      const fromPath = parts[parts.length - 1];
+      if (fromPath) return fromPath;
+    }
+
+    if (filename.endsWith("_coco.json")) {
+      const base = filename.replace(/_coco\.json$/i, "");
+      const matched = images.find(
+        (img) => img.replace(/\.[^/.]+$/, "") === base
+      );
+      if (matched) return matched;
+      return `${base}.jpg`;
+    }
+
+    return filename;
+  };
+
+  const syncAnnotationsFromServer = useCallback(async () => {
+    try {
+      const response = await apiCall(API_CONFIG.ENDPOINTS.ANNOTATIONS);
+      if (!response.ok) {
+        throw new Error(`Failed to load annotations: ${response.status}`);
+      }
+      const payload = await response.json().catch(() => null);
+
+      let filenames: string[] = [];
+      if (Array.isArray(payload)) {
+        filenames = payload.filter(
+          (item): item is string => typeof item === "string"
+        );
+      } else if (Array.isArray(payload?.files)) {
+        filenames = payload.files
+          .filter((item: any) => typeof item?.filename === "string")
+          .map((item: any) => item.filename);
+      }
+
+      if (filenames.length === 0) {
+        setAnnotations({});
+        localStorage.removeItem("ketilabel_annotations");
+        return;
+      }
+
+      const detailResults = await Promise.allSettled(
+        filenames.map(async (name) => {
+          const res = await apiCall(
+            `${API_CONFIG.ENDPOINTS.ANNOTATIONS}/${encodeURIComponent(name)}`
+          );
+          if (!res.ok) throw new Error(`Failed to load ${name}: ${res.status}`);
+          const data = await res.json();
+          return { filename: name, data };
+        })
+      );
+
+      const nextAnnotations: Record<string, any[]> = {};
+
+      detailResults.forEach((result) => {
+        if (result.status !== "fulfilled") {
+          console.error(result.reason);
+          return;
+        }
+
+        const { filename, data } = result.value;
+        const polygons = extractPolygonsFromPayload(data);
+
+        if (!Array.isArray(polygons)) return;
+
+        const imageName = resolveImageNameFromPayload(data, filename);
+        if (!imageName) return;
+
+        nextAnnotations[imageName] = polygons;
+      });
+
+      setAnnotations(nextAnnotations);
+      if (Object.keys(nextAnnotations).length > 0) {
+        localStorage.setItem(
+          "ketilabel_annotations",
+          JSON.stringify(nextAnnotations)
+        );
+      } else {
+        localStorage.removeItem("ketilabel_annotations");
+      }
+    } catch (error) {
+      console.error(error);
+      toast({
+        variant: "destructive",
+        title: "Failed to load annotations",
+        description:
+          error instanceof Error ? error.message : "Unexpected error occurred.",
+      });
+    } finally {
+      // no-op
+    }
+  }, [toast, images]);
+
+  // Load annotations from localStorage first for instant UI
   useEffect(() => {
-    const savedAnnotations = localStorage.getItem("ketilabel_annotations")
+    const savedAnnotations = localStorage.getItem("ketilabel_annotations");
     if (savedAnnotations) {
       try {
-        setAnnotations(JSON.parse(savedAnnotations))
+        setAnnotations(JSON.parse(savedAnnotations));
       } catch (error) {
-        console.error("Failed to load annotations:", error)
+        console.error("Failed to load annotations:", error);
       }
     }
-  }, [])
+  }, []);
+
+  // Re-sync from server whenever Export 탭을 열 때마다 최신 상태로 갱신
+  useEffect(() => {
+    if (!selectedImage && activeTab === "export") {
+      syncAnnotationsFromServer();
+    }
+  }, [activeTab, selectedImage, syncAnnotationsFromServer]);
 
   const toggleDarkMode = () => {
-    setIsDarkMode(!isDarkMode)
-  }
+    setIsDarkMode(!isDarkMode);
+  };
 
   const handleImageSelect = (image: string) => {
-    setSelectedImage(image)
-  }
+    setSelectedImage(image);
+  };
 
   const handleBackToGallery = () => {
-    setSelectedImage(null)
-  }
+    setSelectedImage(null);
+  };
 
   const handleClassUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0]
-    if (!file) return
+    const file = event.target.files?.[0];
+    if (!file) return;
 
-    const reader = new FileReader()
+    const reader = new FileReader();
     reader.onload = (e) => {
       try {
-        const classes = JSON.parse(e.target?.result as string)
-        setUploadedClasses(classes)
-        setShowClassModal(false)
-        alert(`Successfully uploaded ${classes.length} classes!`)
+        const classes = JSON.parse(e.target?.result as string);
+        setUploadedClasses(classes);
+        setShowClassModal(false);
+        alert(`Successfully uploaded ${classes.length} classes!`);
       } catch (error) {
-        alert("Invalid JSON format. Please check your file.")
+        alert("Invalid JSON format. Please check your file.");
       }
-    }
-    reader.readAsText(file)
-  }
+    };
+    reader.readAsText(file);
+  };
 
   const handleImageUpload = async (files: File[]) => {
-    setUploading(true)
+    setUploading(true);
     const uploadPromises = Array.from(files).map(async (file) => {
-      const formData = new FormData()
-      formData.append("file", file)
+      const formData = new FormData();
+      formData.append("file", file);
 
       try {
         const response = await apiCall(API_CONFIG.ENDPOINTS.UPLOAD_IMAGE, {
           method: "POST",
           body: formData,
-        })
+        });
 
         if (!response.ok) {
-          throw new Error(`Failed to upload ${file.name}`)
+          throw new Error(`Failed to upload ${file.name}`);
         }
 
-        return { success: true, filename: file.name }
+        return { success: true, filename: file.name };
       } catch (error) {
-        console.error(`Error uploading ${file.name}:`, error)
-        return { success: false, filename: file.name, error: (error as Error).message }
+        console.error(`Error uploading ${file.name}:`, error);
+        return {
+          success: false,
+          filename: file.name,
+          error: (error as Error).message,
+        };
       }
-    })
+    });
 
-    const results = await Promise.all(uploadPromises)
-    const successful = results.filter((r) => r.success)
-    const failed = results.filter((r) => !r.success)
+    const results = await Promise.all(uploadPromises);
+    const successful = results.filter((r) => r.success);
+    const failed = results.filter((r) => !r.success);
 
     if (successful.length > 0) {
       toast({
         title: "Upload Successful",
         description: `Successfully uploaded ${successful.length} images`,
-      })
+      });
 
       // Refresh image list
-      const response = await apiCall(API_CONFIG.ENDPOINTS.IMAGES)
-      const data = await response.json()
-      setImages(data)
+      const response = await apiCall(API_CONFIG.ENDPOINTS.IMAGES);
+      const data = await response.json();
+      setImages(data);
     }
 
     if (failed.length > 0) {
@@ -173,13 +302,12 @@ export default function Home() {
         variant: "destructive",
         title: "Upload Failed",
         description: `Failed to upload ${failed.length} images`,
-      })
+      });
     }
 
-    setUploading(false)
-    setShowUploadModal(false)
-  }
-
+    setUploading(false);
+    setShowUploadModal(false);
+  };
 
   if (selectedImage) {
     return (
@@ -189,8 +317,19 @@ export default function Home() {
         uploadedClasses={uploadedClasses}
         isDarkMode={isDarkMode}
         toggleDarkMode={toggleDarkMode}
+        onAnnotationsSave={(imageId, updatedPolygons) => {
+          setAnnotations((prev) => {
+            const next = { ...prev };
+            if (!updatedPolygons || updatedPolygons.length === 0) {
+              delete next[imageId];
+            } else {
+              next[imageId] = updatedPolygons;
+            }
+            return next;
+          });
+        }}
       />
-    )
+    );
   }
 
   return (
@@ -206,7 +345,9 @@ export default function Home() {
                 </div>
                 <div>
                   <h1 className="text-xl font-bold font-sans">KETIlabel</h1>
-                  <p className="text-xs text-muted-foreground font-mono">AI-Powered Annotation</p>
+                  <p className="text-xs text-muted-foreground font-mono">
+                    AI-Powered Annotation
+                  </p>
                 </div>
               </div>
             </div>
@@ -220,7 +361,11 @@ export default function Home() {
               </Link>
 
               <Button variant="ghost" size="icon" onClick={toggleDarkMode}>
-                {isDarkMode ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+                {isDarkMode ? (
+                  <Sun className="h-4 w-4" />
+                ) : (
+                  <Moon className="h-4 w-4" />
+                )}
               </Button>
 
               <Dialog open={showUploadModal} onOpenChange={setShowUploadModal}>
@@ -234,7 +379,8 @@ export default function Home() {
                   <DialogHeader>
                     <DialogTitle>Upload Images</DialogTitle>
                     <DialogDescription>
-                      Select one or more image files to upload. Supported formats: JPG, PNG, GIF, WebP.
+                      Select one or more image files to upload. Supported
+                      formats: JPG, PNG, GIF, WebP.
                     </DialogDescription>
                   </DialogHeader>
                   <div className="space-y-4">
@@ -245,7 +391,9 @@ export default function Home() {
                         type="file"
                         accept="image/*"
                         multiple
-                        onChange={(e) => handleImageUpload(Array.from(e.target.files || []))}
+                        onChange={(e) =>
+                          handleImageUpload(Array.from(e.target.files || []))
+                        }
                         disabled={uploading}
                         className="mt-2"
                       />
@@ -265,164 +413,190 @@ export default function Home() {
       </header>
 
       {/* Main Content */}
-      <main className="container mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="container mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
         {/* Hero Section */}
-        <div className="text-center mb-12">
-          <div className="inline-flex items-center rounded-full border px-4 py-2 text-sm font-medium mb-4">
-            <Zap className="mr-2 h-4 w-4 text-primary" />
-            Powered by SAM2 AI Technology
+        <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-primary/10 via-primary/5 to-background border border-primary/10 p-6 md:p-10 text-center mb-10 mt-2">
+          <div className="absolute inset-0 bg-grid-white/10 [mask-image:linear-gradient(0deg,white,rgba(255,255,255,0.6))]" />
+          <div className="relative z-10 flex flex-col items-center">
+            <div className="inline-flex items-center rounded-full border bg-background/50 backdrop-blur px-4 py-2 text-sm font-medium mb-6 shadow-sm">
+              <Zap className="mr-2 h-4 w-4 text-primary" />
+              Powered by SAM2 AI Technology
+            </div>
+            <h1 className="text-4xl md:text-5xl font-bold tracking-tight mb-5 bg-clip-text text-transparent bg-gradient-to-r from-primary to-blue-600 dark:from-primary dark:to-blue-400 pb-1.5">
+              AI-Powered Image Labeling
+            </h1>
+            <p className="text-lg md:text-xl text-muted-foreground max-w-2xl mb-6 leading-relaxed">
+              Experience the future of data annotation. Fast, accurate, and
+              intuitive labeling for your computer vision projects.
+            </p>
+            <div className="flex flex-col sm:flex-row gap-4 w-full sm:w-auto">
+              <Button
+                size="lg"
+                className="h-12 px-8 text-lg"
+                onClick={() => {
+                  setActiveTab("gallery");
+                  setTimeout(() => {
+                    document
+                      .getElementById("gallery-section")
+                      ?.scrollIntoView({ behavior: "smooth" });
+                  }, 100);
+                }}
+              >
+                Start Labeling
+                <Target className="ml-2 h-5 w-5" />
+              </Button>
+              <Button
+                size="lg"
+                variant="outline"
+                className="h-12 px-8 text-lg bg-background/50 backdrop-blur"
+                onClick={() => setShowUploadModal(true)}
+              >
+                Upload Images
+                <Upload className="ml-2 h-5 w-5" />
+              </Button>
+            </div>
           </div>
         </div>
 
         {/* Advanced Features Tabs */}
-        <Tabs defaultValue="gallery" className="space-y-8">
-          <TabsList className="grid w-full grid-cols-4">
-            <TabsTrigger value="gallery" className="flex items-center">
-              <ImageIcon className="mr-2 h-4 w-4" />
-              Gallery
-            </TabsTrigger>
-            <TabsTrigger value="export" className="flex items-center">
-              <Download className="mr-2 h-4 w-4" />
-              Export
-            </TabsTrigger>
-            <TabsTrigger value="upload" className="flex items-center">
-              <Upload className="mr-2 h-4 w-4" />
-              Upload
-            </TabsTrigger>
-            <TabsTrigger value="api-status" className="flex items-center">
-              <Settings className="mr-2 h-4 w-4" />
-              API Status
-            </TabsTrigger>
-          </TabsList>
+        <div id="gallery-section">
+          <Tabs
+            value={activeTab}
+            onValueChange={setActiveTab}
+            className="space-y-8"
+          >
+            <TabsList className="grid w-full grid-cols-5">
+              <TabsTrigger
+                value="gallery"
+                id="gallery-trigger"
+                className="flex items-center"
+              >
+                <ImageIcon className="mr-2 h-4 w-4" />
+                Gallery
+              </TabsTrigger>
+              <TabsTrigger value="export" className="flex items-center">
+                <Download className="mr-2 h-4 w-4" />
+                Export
+              </TabsTrigger>
+              <TabsTrigger value="upload" className="flex items-center">
+                <Upload className="mr-2 h-4 w-4" />
+                Upload
+              </TabsTrigger>
+              <TabsTrigger value="model-training" className="flex items-center">
+                <Brain className="mr-2 h-4 w-4" />
+                Model Training
+              </TabsTrigger>
+              <TabsTrigger value="api-status" className="flex items-center">
+                <Settings className="mr-2 h-4 w-4" />
+                API Status
+              </TabsTrigger>
+            </TabsList>
 
-          <TabsContent value="gallery" className="space-y-8">
-            {/* Statistics Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Total Images</CardTitle>
-                  <ImageIcon className="h-4 w-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold">{images.length}</div>
-                  <p className="text-xs text-muted-foreground">Available for labeling</p>
-                </CardContent>
-              </Card>
+            <TabsContent value="gallery" className="space-y-8">
+              {/* Statistics Cards Removed */}
 
+              {/* Image Gallery */}
               <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Labeled Images</CardTitle>
-                  <Target className="h-4 w-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold">
-                    {Object.keys(annotations).filter((key) => annotations[key]?.length > 0).length}
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <CardTitle>Image Gallery</CardTitle>
+                      <CardDescription>
+                        Select an image to start labeling
+                      </CardDescription>
+                    </div>
+                    <Badge variant="secondary">{images.length} images</Badge>
                   </div>
-                  <p className="text-xs text-muted-foreground">Completed annotations</p>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Total Annotations</CardTitle>
-                  <Settings className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold">
-                    {Object.values(annotations).reduce((sum, arr) => sum + (arr?.length || 0), 0)}
-                  </div>
-                  <p className="text-xs text-muted-foreground">Polygon annotations</p>
+                  <ImageGallery
+                    images={images}
+                    loading={loading}
+                    error={error}
+                    onImageSelect={handleImageSelect}
+                    annotations={annotations}
+                  />
                 </CardContent>
               </Card>
+            </TabsContent>
 
+            <TabsContent value="export">
+              <ExportManager
+                images={images}
+                annotations={annotations}
+                onExport={async (format, options) => {
+                  console.log("Exporting:", format, options);
+                }}
+                onDeleteAnnotation={(imageId) => {
+                  setAnnotations((prev) => {
+                    const next = { ...prev };
+                    delete next[imageId];
+                    return next;
+                  });
+                }}
+              />
+            </TabsContent>
+
+            <TabsContent value="upload">
               <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Available Classes</CardTitle>
-                  <FileText className="h-4 w-4 text-muted-foreground" />
+                <CardHeader>
+                  <CardTitle className="flex items-center">
+                    <Upload className="mr-2 h-5 w-5 text-primary" />
+                    Upload Images
+                  </CardTitle>
+                  <CardDescription>
+                    Drag and drop images or click to select files
+                  </CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold">{uploadedClasses ? uploadedClasses.length : 10}</div>
-                  <p className="text-xs text-muted-foreground">Label categories</p>
+                  <DragDropUpload
+                    onUpload={handleImageUpload}
+                    maxFiles={20}
+                    maxSize={50 * 1024 * 1024} // 50MB
+                  />
                 </CardContent>
               </Card>
-            </div>
 
-            {/* Image Gallery */}
-            <Card>
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <CardTitle>Image Gallery</CardTitle>
-                    <CardDescription>Select an image to start labeling</CardDescription>
-                  </div>
-                  <Badge variant="secondary">{images.length} images</Badge>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <ImageGallery images={images} loading={loading} error={error} onImageSelect={handleImageSelect} />
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-
-          <TabsContent value="export">
-            <ExportManager
-              images={images}
-              annotations={annotations}
-              onExport={async (format, options) => {
-                console.log("Exporting:", format, options)
-              }}
-            />
-          </TabsContent>
-
-
-          <TabsContent value="upload">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center">
-                  <Upload className="mr-2 h-5 w-5 text-primary" />
-                  Upload Images
-                </CardTitle>
-                <CardDescription>Drag and drop images or click to select files</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <DragDropUpload
-                  onUpload={handleImageUpload}
-                  maxFiles={20}
-                  maxSize={50 * 1024 * 1024} // 50MB
-                />
-              </CardContent>
-            </Card>
-
-            {/* Class Upload */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center">
-                  <Settings className="mr-2 h-5 w-5 text-primary" />
-                  Manage Classes
-                </CardTitle>
-                <CardDescription>Upload or edit label classes for your annotations</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Dialog open={showClassModal} onOpenChange={setShowClassModal}>
-                  <DialogTrigger asChild>
-                    <Button variant="outline" className="w-full bg-transparent">
-                      <FileText className="mr-2 h-4 w-4" />
-                      Upload Class Definitions
-                    </Button>
-                  </DialogTrigger>
-                  <DialogContent>
-                    <DialogHeader>
-                      <DialogTitle>Upload Class List</DialogTitle>
-                      <DialogDescription>
-                        Upload a JSON file with your class definitions. This will replace all existing classes.
-                      </DialogDescription>
-                    </DialogHeader>
-                    <div className="space-y-4">
-                      <div className="rounded-lg bg-muted p-4">
-                        <p className="text-sm font-medium mb-2">Expected JSON format:</p>
-                        <pre className="text-xs text-muted-foreground overflow-x-auto">
-                          {`[
+              {/* Class Upload */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center">
+                    <Settings className="mr-2 h-5 w-5 text-primary" />
+                    Manage Classes
+                  </CardTitle>
+                  <CardDescription>
+                    Upload or edit label classes for your annotations
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <Dialog
+                    open={showClassModal}
+                    onOpenChange={setShowClassModal}
+                  >
+                    <DialogTrigger asChild>
+                      <Button
+                        variant="outline"
+                        className="w-full bg-transparent"
+                      >
+                        <FileText className="mr-2 h-4 w-4" />
+                        Upload Class Definitions
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent>
+                      <DialogHeader>
+                        <DialogTitle>Upload Class List</DialogTitle>
+                        <DialogDescription>
+                          Upload a JSON file with your class definitions. This
+                          will replace all existing classes.
+                        </DialogDescription>
+                      </DialogHeader>
+                      <div className="space-y-4">
+                        <div className="rounded-lg bg-muted p-4">
+                          <p className="text-sm font-medium mb-2">
+                            Expected JSON format:
+                          </p>
+                          <pre className="text-xs text-muted-foreground overflow-x-auto">
+                            {`[
   {
     "id": "person",
     "name": "Person",
@@ -434,30 +608,57 @@ export default function Home() {
     "color": "#ef4444"
   }
 ]`}
-                        </pre>
+                          </pre>
+                        </div>
+                        <div>
+                          <Label htmlFor="class-upload">Choose JSON File</Label>
+                          <Input
+                            id="class-upload"
+                            type="file"
+                            accept=".json"
+                            onChange={handleClassUpload}
+                            className="mt-2"
+                          />
+                        </div>
                       </div>
-                      <div>
-                        <Label htmlFor="class-upload">Choose JSON File</Label>
-                        <Input
-                          id="class-upload"
-                          type="file"
-                          accept=".json"
-                          onChange={handleClassUpload}
-                          className="mt-2"
-                        />
-                      </div>
-                    </div>
-                  </DialogContent>
-                </Dialog>
-              </CardContent>
-            </Card>
-          </TabsContent>
+                    </DialogContent>
+                  </Dialog>
+                </CardContent>
+              </Card>
+            </TabsContent>
 
-          <TabsContent value="api-status">
-            <ApiStatusMonitor />
-          </TabsContent>
-        </Tabs>
+            <TabsContent value="model-training">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center">
+                    <Brain className="mr-2 h-5 w-5 text-primary" />
+                    Model Training
+                  </CardTitle>
+                  <CardDescription>
+                    Launch end-to-end training jobs using your freshly labeled
+                    datasets.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="text-sm text-muted-foreground max-w-2xl">
+                    Fine-tune SAM2-powered models, monitor job progress, and
+                    download checkpoints directly from the training console.
+                  </div>
+                  <Link href="/training">
+                    <Button size="lg" className="w-full sm:w-auto">
+                      Go to Training
+                    </Button>
+                  </Link>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            <TabsContent value="api-status">
+              <ApiStatusMonitor />
+            </TabsContent>
+          </Tabs>
+        </div>
       </main>
     </div>
-  )
+  );
 }

@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -33,9 +33,10 @@ export interface ClassDefinition {
 interface ClassManagerProps {
   classes: ClassDefinition[]
   onClassesChange: (classes: ClassDefinition[]) => void
-  onClassSelect?: (classId: string) => void
+  onClassSelect?: (classId: string | null) => void
   selectedClassId?: string | null
   polygonCounts?: Record<string, number>
+  onClassDelete?: (classId: string) => void
 }
 
 // Predefined color palette
@@ -57,26 +58,13 @@ const COLOR_PALETTE = [
   "#f43f5e", // rose
 ]
 
-// Default classes
-const DEFAULT_CLASSES: ClassDefinition[] = [
-  { id: "button_1", name: "button_1", color: "#ef4444", description: "Class 1", shortcut: "1" },
-  { id: "button_2", name: "button_2", color: "#f97316", description: "Class 2", shortcut: "2" },
-  { id: "button_3", name: "button_3", color: "#eab308", description: "Class 3", shortcut: "3" },
-  { id: "button_4", name: "button_4", color: "#22c55e", description: "Class 4", shortcut: "4" },
-  { id: "button_5", name: "button_5", color: "#06b6d4", description: "Class 5", shortcut: "5" },
-  { id: "button_6", name: "button_6", color: "#3b82f6", description: "Class 6", shortcut: "6" },
-  { id: "button_7", name: "button_7", color: "#8b5cf6", description: "Class 7", shortcut: "7" },
-  { id: "button_8", name: "button_8", color: "#ec4899", description: "Class 8", shortcut: "8" },
-  { id: "button_9", name: "button_9", color: "#84cc16", description: "Class 9", shortcut: "9" },
-  { id: "button_10", name: "button_10", color: "#6b7280", description: "Class 10", shortcut: "0" },
-]
-
 export default function ClassManager({
   classes,
   onClassesChange,
   onClassSelect,
   selectedClassId,
-  polygonCounts = {}
+  polygonCounts = {},
+  onClassDelete,
 }: ClassManagerProps) {
   const [isEditing, setIsEditing] = useState(false)
   const [editingClass, setEditingClass] = useState<ClassDefinition | null>(null)
@@ -85,26 +73,6 @@ export default function ClassManager({
   const [newClassDescription, setNewClassDescription] = useState("")
   const [showAddDialog, setShowAddDialog] = useState(false)
   const { toast } = useToast()
-
-  // Initialize with default classes if empty
-  useEffect(() => {
-    console.log('ClassManager: Current classes:', classes)
-    console.log('ClassManager: DEFAULT_CLASSES:', DEFAULT_CLASSES)
-    if (classes.length === 0) {
-      console.log('ClassManager: Setting default classes')
-      onClassesChange(DEFAULT_CLASSES)
-    }
-  }, [classes.length, onClassesChange])
-
-  // Force update to new button classes (temporary - for migration)
-  const handleForceUpdateToButtonClasses = () => {
-    onClassesChange(DEFAULT_CLASSES)
-    localStorage.setItem("ketilabel_classes", JSON.stringify(DEFAULT_CLASSES))
-    toast({
-      title: "Classes updated",
-      description: "Classes have been updated to button_1 through button_10.",
-    })
-  }
 
   const handleAddClass = () => {
     if (!newClassName.trim()) {
@@ -150,12 +118,21 @@ export default function ClassManager({
 
   const handleDeleteClass = (classId: string) => {
     const classToDelete = classes.find(cls => cls.id === classId)
+    if (!classToDelete) return
+
+    const confirmed = window.confirm(`"${classToDelete.name}" 클래스를 삭제할까요? 해당 클래스를 사용 중인 폴리곤은 Unlabeled 상태가 됩니다.`)
+    if (!confirmed) return
+
     const updatedClasses = classes.filter(cls => cls.id !== classId)
     onClassesChange(updatedClasses)
+    onClassDelete?.(classId)
+    if (selectedClassId === classId) {
+      onClassSelect?.(null)
+    }
 
     toast({
       title: "Class deleted",
-      description: `${classToDelete?.name} has been removed from your class list.`,
+      description: `${classToDelete.name} has been removed from your class list.`,
     })
   }
 
@@ -199,10 +176,10 @@ export default function ClassManager({
   }
 
   const handleResetToDefaults = () => {
-    onClassesChange(DEFAULT_CLASSES)
+    onClassesChange([])
     toast({
       title: "Classes reset",
-      description: "Class list has been reset to default classes.",
+      description: "All classes have been cleared.",
     })
   }
 
@@ -426,18 +403,24 @@ export default function ClassManager({
             </Button>
           </div>
           <Button
-            variant="secondary"
+            variant="destructive"
             size="sm"
-            onClick={handleForceUpdateToButtonClasses}
+            disabled={!selectedClassId}
+            onClick={() => {
+              if (selectedClassId) {
+                handleDeleteClass(selectedClassId)
+              }
+            }}
             className="w-full"
           >
-            Update to Button Classes
+            <Trash2 className="mr-2 h-4 w-4" />
+            Delete Selected Class
           </Button>
         </div>
 
         {/* Quick shortcuts help */}
         <div className="text-xs text-muted-foreground bg-muted/30 p-2 rounded">
-          <strong>Shortcuts:</strong> 1-9 = button_1-9, 0 = button_10, Backspace = remove class
+          <strong>Shortcuts:</strong> 1-9/0 = assign first 10 classes, Backspace = remove class
         </div>
       </CardContent>
     </Card>

@@ -11,9 +11,9 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
 import { Progress } from "@/components/ui/progress"
-import { Download, FileJson, FileText, ImageIcon, Settings, CheckCircle, AlertCircle } from "lucide-react"
+import { Download, FileJson, FileText, ImageIcon, Settings, CheckCircle, AlertCircle, Trash2 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
-import { API_CONFIG } from "@/lib/api-config"
+import { apiCall, API_CONFIG } from "@/lib/api-config"
 
 interface ExportFormat {
   id: string
@@ -27,15 +27,18 @@ interface ExportManagerProps {
   images: string[]
   annotations: Record<string, any[]>
   onExport?: (format: string, options: any) => Promise<void>
+  onDeleteAnnotation?: (imageId: string) => void
 }
 
-export default function ExportManager({ images, annotations, onExport }: ExportManagerProps) {
+export default function ExportManager({ images, annotations, onExport, onDeleteAnnotation }: ExportManagerProps) {
   const [selectedFormat, setSelectedFormat] = useState<string>("coco")
   const [selectedImages, setSelectedImages] = useState<string[]>([])
   const [includeImages, setIncludeImages] = useState(false)
   const [includeMetadata, setIncludeMetadata] = useState(true)
   const [isExporting, setIsExporting] = useState(false)
   const [exportProgress, setExportProgress] = useState(0)
+  const [deletingImages, setDeletingImages] = useState<Record<string, boolean>>({})
+  const [clearedAnnotations, setClearedAnnotations] = useState<Record<string, boolean>>({})
   const { toast } = useToast()
 
   // Retrieve stored image dimensions (saved by LabelingWorkspace)
@@ -156,6 +159,65 @@ export default function ExportManager({ images, annotations, onExport }: ExportM
     })
 
     return cocoData
+  }
+
+  const deriveAnnotationFilename = (image: string) => {
+    const base = image.replace(/\.[^/.]+$/, "")
+    return `${base}_coco.json`
+  }
+
+  const removeAnnotationFromCache = (image: string) => {
+    try {
+      const raw = localStorage.getItem("ketilabel_annotations")
+      if (!raw) return
+      const annotations = JSON.parse(raw) as Record<string, any[]>
+      if (annotations[image]) {
+        delete annotations[image]
+        localStorage.setItem("ketilabel_annotations", JSON.stringify(annotations))
+      }
+    } catch (error) {
+      console.error("Failed to update cached annotations:", error)
+    }
+  }
+
+  const handleDeleteAnnotation = async (image: string) => {
+    const filename = deriveAnnotationFilename(image)
+    setDeletingImages((prev) => ({ ...prev, [image]: true }))
+    try {
+      const response = await apiCall(`${API_CONFIG.ENDPOINTS.ANNOTATIONS}/${filename}`, {
+        method: "DELETE",
+      })
+
+      const responseBody = await response.json().catch(() => null)
+
+      if (!response.ok) {
+        const errorMessage =
+          responseBody?.message || responseBody?.detail || `Failed to delete ${filename}`
+        throw new Error(errorMessage)
+      }
+
+      toast({
+        title: "Annotation deleted",
+        description: responseBody?.message || `${filename} 파일이 삭제되었습니다.`,
+      })
+
+      setSelectedImages((prev) => prev.filter((img) => img !== image))
+      onDeleteAnnotation?.(image)
+      removeAnnotationFromCache(image)
+      setClearedAnnotations((prev) => ({ ...prev, [image]: true }))
+    } catch (error) {
+      toast({
+        variant: "destructive",
+        title: "Delete failed",
+        description: error instanceof Error ? error.message : "Failed to delete annotation file.",
+      })
+    } finally {
+      setDeletingImages((prev) => {
+        const next = { ...prev }
+        delete next[image]
+        return next
+      })
+    }
   }
 
   const generateYoloFormat = (selectedImages: string[], annotations: Record<string, any[]>) => {
@@ -369,8 +431,9 @@ export default function ExportManager({ images, annotations, onExport }: ExportM
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 max-h-64 overflow-y-auto">
             {images.map((image) => {
-              const hasAnnotations = annotations[image]?.length > 0
+              const hasAnnotations = !clearedAnnotations[image] && (annotations[image]?.length > 0)
               const isSelected = selectedImages.includes(image)
+              const isDeleting = !!deletingImages[image]
 
               return (
                 <div
@@ -401,6 +464,18 @@ export default function ExportManager({ images, annotations, onExport }: ExportM
                       )}
                     </div>
                   </div>
+                  {hasAnnotations && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="ml-auto text-muted-foreground hover:text-destructive"
+                      onClick={() => handleDeleteAnnotation(image)}
+                      disabled={isDeleting}
+                      title="Delete annotations"
+                    >
+                      <Trash2 className={`h-4 w-4 ${isDeleting ? "animate-pulse" : ""}`} />
+                    </Button>
+                  )}
                 </div>
               )
             })}

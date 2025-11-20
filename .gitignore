@@ -28,3 +28,6 @@ next-env.d.ts
 
 # Development documentation (exclude from repository)
 CLAUDE.md
+
+# macOS
+.DS_Store

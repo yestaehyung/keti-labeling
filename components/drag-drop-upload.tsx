@@ -54,13 +54,14 @@ export default function DragDropUpload({
       }
 
       // Add accepted files
-      const newFiles: FileWithPreview[] = acceptedFiles.map((file) => ({
-        ...file,
-        id: Math.random().toString(36).substr(2, 9),
-        preview: URL.createObjectURL(file),
-        status: "pending",
-        progress: 0,
-      }))
+      const newFiles: FileWithPreview[] = acceptedFiles.map((file) =>
+        Object.assign(file, {
+          id: Math.random().toString(36).substr(2, 9),
+          preview: URL.createObjectURL(file),
+          status: "pending" as FileWithPreview["status"],
+          progress: 0,
+        }),
+      )
 
       setFiles((prev) => [...prev, ...newFiles].slice(0, maxFiles))
     },

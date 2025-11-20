@@ -8,7 +8,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Progress } from "@/components/ui/progress"
 import { CheckCircle, XCircle, Clock, RefreshCw, Server, Wifi, WifiOff, AlertTriangle } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
-import { API_CONFIG } from "@/lib/api-config"
+import { API_CONFIG, GEMINI_SEGMENTATION_DEFAULTS } from "@/lib/api-config"
 
 interface ApiEndpoint {
   name: string
@@ -45,10 +45,10 @@ const API_ENDPOINTS: ApiEndpoint[] = [
     description: "SAM2 polygon generation",
   },
   {
-    name: "Gemini Assistant",
-    url: `${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.GEMINI_ASSIST}`,
+    name: "Gemini Segmentation",
+    url: `${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.GEMINI_SEGMENTATION}`,
     method: "POST",
-    description: "AI labeling assistance",
+    description: "Gemini-based polygon segmentation",
   },
 ]
 
@@ -73,12 +73,31 @@ export default function ApiStatusMonitor() {
         })
       } else {
         // For POST endpoints, send a test payload
-        const testData = endpoint.url.includes("upload") ? new FormData() : JSON.stringify({ test: true })
+        let body: BodyInit | undefined
+        let headers: HeadersInit = {}
+
+        if (endpoint.url.includes("upload")) {
+          body = new FormData()
+        } else if (endpoint.name === "Gemini Segmentation") {
+          const { model, temperature, resizeWidth } = GEMINI_SEGMENTATION_DEFAULTS
+          body = JSON.stringify({
+            filename: "status-check.jpg",
+            target: "person",
+            model,
+            temperature,
+            resize_width: resizeWidth,
+            image_size: [1024, 768],
+          })
+          headers = { "Content-Type": "application/json" }
+        } else {
+          body = JSON.stringify({ test: true })
+          headers = { "Content-Type": "application/json" }
+        }
 
         response = await fetch(endpoint.url, {
           method: "POST",
-          body: testData,
-          headers: endpoint.url.includes("upload") ? {} : { "Content-Type": "application/json" },
+          body,
+          headers,
         })
       }
 

@@ -10,7 +10,7 @@ export const API_CONFIG = {
     UPLOAD: "/api/upload",
     GENERATE_POLYGONS: "/api/generate-polygons",
     GENERATE_POLYGONS_WITH_POINTS: "/api/generate-polygons-with-points",
-    GEMINI_ASSIST: "/api/gemini-assist",
+    GEMINI_SEGMENTATION: "/api/gemini-segmentation",
     CONVERT_TO_COCO: "/api/convert-to-coco",
     ANNOTATIONS: "/api/annotations",
     // Training endpoints
@@ -24,4 +24,10 @@ export const API_CONFIG = {
 export const apiCall = (endpoint: string, options?: RequestInit) => {
   const url = `${API_CONFIG.BASE_URL}${endpoint}`
   return fetch(url, options)
+}
+
+export const GEMINI_SEGMENTATION_DEFAULTS = {
+  model: "gemini-2.5-flash-preview-05-20",
+  temperature: 0.5,
+  resizeWidth: 1024,
 }
