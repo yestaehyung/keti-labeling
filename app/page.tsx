@@ -224,6 +224,11 @@ export default function Home() {
     }
   }, [activeTab, selectedImage, syncAnnotationsFromServer]);
 
+  // Initial sync on mount to ensure gallery is up to date
+  useEffect(() => {
+    syncAnnotationsFromServer();
+  }, [syncAnnotationsFromServer]);
+
   const toggleDarkMode = () => {
     setIsDarkMode(!isDarkMode);
   };
@@ -246,12 +251,46 @@ export default function Home() {
         const classes = JSON.parse(e.target?.result as string);
         setUploadedClasses(classes);
         setShowClassModal(false);
-        alert(`Successfully uploaded ${classes.length} classes!`);
+        toast({
+          title: "Classes Uploaded",
+          description: `Successfully loaded ${classes.length} classes. They will be applied when you open an image.`,
+        });
       } catch (error) {
         alert("Invalid JSON format. Please check your file.");
       }
     };
     reader.readAsText(file);
+  };
+
+  const handleClassDownload = () => {
+    const savedClasses = localStorage.getItem("ketilabel_classes");
+    if (!savedClasses) {
+      toast({
+        variant: "destructive",
+        title: "No classes found",
+        description: "You haven't defined any classes yet.",
+      });
+      return;
+    }
+
+    try {
+      const blob = new Blob([savedClasses], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "classes.json";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      toast({
+        title: "Classes Downloaded",
+        description: "Your class definitions have been saved to classes.json",
+      });
+    } catch (error) {
+      console.error("Failed to download classes:", error);
+    }
   };
 
   const handleImageUpload = async (files: File[]) => {
@@ -578,7 +617,7 @@ export default function Home() {
                         variant="outline"
                         className="w-full bg-transparent"
                       >
-                        <FileText className="mr-2 h-4 w-4" />
+                        <Upload className="mr-2 h-4 w-4" />
                         Upload Class Definitions
                       </Button>
                     </DialogTrigger>
@@ -623,6 +662,15 @@ export default function Home() {
                       </div>
                     </DialogContent>
                   </Dialog>
+
+                  <Button
+                    variant="outline"
+                    className="w-full bg-transparent mt-2"
+                    onClick={handleClassDownload}
+                  >
+                    <Download className="mr-2 h-4 w-4" />
+                    Download Class Definitions
+                  </Button>
                 </CardContent>
               </Card>
             </TabsContent>

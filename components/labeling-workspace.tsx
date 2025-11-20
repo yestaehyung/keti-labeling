@@ -116,6 +116,17 @@ export default function LabelingWorkspace({
     }
   }, [])
 
+  // Handle uploaded classes from parent
+  useEffect(() => {
+    if (uploadedClasses && uploadedClasses.length > 0) {
+      setClasses(uploadedClasses)
+      toast({
+        title: "Classes Updated",
+        description: `Applied ${uploadedClasses.length} classes from upload.`,
+      })
+    }
+  }, [uploadedClasses])
+
   // Save classes to localStorage when they change
   useEffect(() => {
     const storageKey = "ketilabel_classes"
