@@ -10,7 +10,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { ArrowLeft, Moon, Sun, Zap, Target, Trash2, FileText, Play, Square, RotateCcw, Brain, PanelLeft, PanelRight, ZoomIn, ZoomOut, Hand, MousePointer2, Maximize, Minimize, Sparkles, Layers, Loader2 } from "lucide-react"
+import { ArrowLeft, Moon, Sun, Zap, Target, Trash2, FileText, Play, Square, RotateCcw, Brain, PanelLeft, PanelRight, ZoomIn, ZoomOut, Hand, MousePointer2, Maximize, Minimize, Sparkles, Layers, Loader2, ChevronLeft, ChevronRight, CheckCircle } from "lucide-react"
 import AdvancedPolygonVisualization from "./advanced-polygon-visualization"
 import ClassManager, { type ClassDefinition } from "./class-manager"
 import { useToast } from "@/hooks/use-toast"
@@ -31,6 +31,12 @@ interface LabelingWorkspaceProps {
   uploadedClasses: any[] | null
   isDarkMode: boolean
   toggleDarkMode: () => void
+  onNext?: () => void
+  onPrevious?: () => void
+  hasNext?: boolean
+  hasPrevious?: boolean
+  hasExistingAnnotations?: boolean
+  initialAnnotations?: any[]
   onAnnotationsSave?: (imageId: string, annotations: any[]) => void
 }
 
@@ -40,11 +46,17 @@ export default function LabelingWorkspace({
   uploadedClasses,
   isDarkMode,
   toggleDarkMode,
+  onNext,
+  onPrevious,
+  hasNext,
+  hasPrevious,
+  hasExistingAnnotations,
+  initialAnnotations = [],
   onAnnotationsSave,
 }: LabelingWorkspaceProps) {
   const [isProcessing, setIsProcessing] = useState(false)
   const [processingStatus, setProcessingStatus] = useState<string | null>(null)
-  const [polygonData, setPolygonData] = useState<any[] | null>(null)
+  const [polygonData, setPolygonData] = useState<any[] | null>(initialAnnotations)
   const [imageSize, setImageSize] = useState({ width: 800, height: 600 })
   const [rawServerLog, setRawServerLog] = useState<any>(null)
   const [showRawLog, setShowRawLog] = useState(false)
@@ -136,6 +148,38 @@ export default function LabelingWorkspace({
       localStorage.removeItem(storageKey)
     }
   }, [classes])
+  
+  // Track previous image to prevent unnecessary resets
+  const prevImageRef = useRef<string | null>(null)
+
+  // Reset state when selectedImage changes
+  useEffect(() => {
+    // Only reset if the image has actually changed
+    if (selectedImage === prevImageRef.current) {
+      return
+    }
+    
+    console.log("🔄 Image changed, resetting workspace state for:", selectedImage)
+    prevImageRef.current = selectedImage
+    
+    // Reset polygons to initial annotations for the new image
+    // Deep copy to avoid reference issues
+    setPolygonData(initialAnnotations ? JSON.parse(JSON.stringify(initialAnnotations)) : [])
+    
+    // Reset other state
+    setProcessingStatus(null)
+    setRawServerLog(null)
+    setShowRawLog(false)
+    setSelectedPoints([])
+    setPointProcessing({})
+    setPointsMode(false)
+    setSelectedPolygonId(null)
+    setClickProcessing(false)
+    setProcessingContext(null)
+    setGeminiPrompt("")
+    setIsSavingAnnotations(false)
+    
+  }, [selectedImage, initialAnnotations])
 
   // Handle image load to get actual dimensions
   const handleImageLoad = () => {
@@ -519,6 +563,7 @@ export default function LabelingWorkspace({
       toast({
         title: "Annotations saved",
         description: "COCO 포맷으로 서버에 저장되었습니다.",
+        duration: 3000,
       })
     } catch (error) {
       console.error("Save annotations error:", error)
@@ -890,6 +935,34 @@ export default function LabelingWorkspace({
               <h1 className="text-sm font-semibold">Image Labeling</h1>
               <span className="text-muted-foreground">/</span>
               <p className="text-xs text-muted-foreground truncate max-w-[200px]">{selectedImage}</p>
+              {hasExistingAnnotations && (
+                <Badge variant="secondary" className="ml-2 bg-green-100 text-green-800 hover:bg-green-100 border-green-200">
+                  <CheckCircle className="w-3 h-3 mr-1" />
+                  Saved
+                </Badge>
+              )}
+              <div className="flex items-center ml-4 space-x-1">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6"
+                  onClick={onPrevious}
+                  disabled={!hasPrevious}
+                  title="Previous Image"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6"
+                  onClick={onNext}
+                  disabled={!hasNext}
+                  title="Next Image"
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
           </div>
 

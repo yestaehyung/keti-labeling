@@ -57,6 +57,9 @@ export default function Home() {
 
   const [annotations, setAnnotations] = useState<Record<string, any[]>>({});
   const [activeTab, setActiveTab] = useState("gallery");
+  const [galleryPage, setGalleryPage] = useState(1);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
   const { toast } = useToast();
 
   // Dark mode initialization
@@ -233,6 +236,16 @@ export default function Home() {
     setIsDarkMode(!isDarkMode);
   };
 
+  const filteredImages = images
+    .filter((img) => img.toLowerCase().includes(searchTerm.toLowerCase()))
+    .sort((a, b) => {
+      if (sortOrder === "asc") {
+        return a.localeCompare(b);
+      } else {
+        return b.localeCompare(a);
+      }
+    });
+
   const handleImageSelect = (image: string) => {
     setSelectedImage(image);
   };
@@ -240,6 +253,29 @@ export default function Home() {
   const handleBackToGallery = () => {
     setSelectedImage(null);
   };
+
+  const handleNextImage = () => {
+    if (!selectedImage) return;
+    const currentIndex = filteredImages.indexOf(selectedImage);
+    if (currentIndex < filteredImages.length - 1) {
+      setSelectedImage(filteredImages[currentIndex + 1]);
+    }
+  };
+
+  const handlePreviousImage = () => {
+    if (!selectedImage) return;
+    const currentIndex = filteredImages.indexOf(selectedImage);
+    if (currentIndex > 0) {
+      setSelectedImage(filteredImages[currentIndex - 1]);
+    }
+  };
+
+  const hasNext = selectedImage
+    ? filteredImages.indexOf(selectedImage) < filteredImages.length - 1
+    : false;
+  const hasPrevious = selectedImage
+    ? filteredImages.indexOf(selectedImage) > 0
+    : false;
 
   const handleClassUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -356,6 +392,14 @@ export default function Home() {
         uploadedClasses={uploadedClasses}
         isDarkMode={isDarkMode}
         toggleDarkMode={toggleDarkMode}
+        onNext={handleNextImage}
+        onPrevious={handlePreviousImage}
+        hasNext={hasNext}
+        hasPrevious={hasPrevious}
+        hasExistingAnnotations={
+          !!(selectedImage && annotations[selectedImage] && annotations[selectedImage].length > 0)
+        }
+        initialAnnotations={selectedImage ? annotations[selectedImage] || [] : []}
         onAnnotationsSave={(imageId, updatedPolygons) => {
           setAnnotations((prev) => {
             const next = { ...prev };
@@ -549,11 +593,17 @@ export default function Home() {
                 </CardHeader>
                 <CardContent>
                   <ImageGallery
-                    images={images}
+                    images={filteredImages}
                     loading={loading}
                     error={error}
                     onImageSelect={handleImageSelect}
                     annotations={annotations}
+                    currentPage={galleryPage}
+                    onPageChange={setGalleryPage}
+                    searchTerm={searchTerm}
+                    onSearchChange={setSearchTerm}
+                    sortOrder={sortOrder}
+                    onSortChange={setSortOrder}
                   />
                 </CardContent>
               </Card>

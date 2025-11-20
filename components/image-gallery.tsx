@@ -13,24 +13,43 @@ interface ImageGalleryProps {
   error: string | null
   onImageSelect: (image: string) => void
   annotations?: Record<string, any[]>
+  currentPage?: number
+  onPageChange?: (page: number) => void
+  searchTerm?: string
+  onSearchChange?: (term: string) => void
+  sortOrder?: "asc" | "desc"
+  onSortChange?: (order: "asc" | "desc") => void
 }
 
 const PAGE_SIZE = 20
 
-export default function ImageGallery({ images, loading, error, onImageSelect, annotations = {} }: ImageGalleryProps) {
-  const [searchTerm, setSearchTerm] = useState("")
-  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc")
-  const [currentPage, setCurrentPage] = useState(1)
+export default function ImageGallery({ 
+  images, 
+  loading, 
+  error, 
+  onImageSelect, 
+  annotations = {},
+  currentPage = 1,
+  onPageChange,
+  searchTerm = "",
+  onSearchChange,
+  sortOrder = "asc",
+  onSortChange
+}: ImageGalleryProps) {
+  // const [searchTerm, setSearchTerm] = useState("") - Removed internal state
+  // const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc") - Removed internal state
+  // const [currentPage, setCurrentPage] = useState(1) - Removed internal state
 
+  // Filter logic moved to parent
   const filteredImages = images
-    .filter((img) => img.toLowerCase().includes(searchTerm.toLowerCase()))
-    .sort((a, b) => {
-      if (sortOrder === "asc") {
-        return a.localeCompare(b)
-      } else {
-        return b.localeCompare(a)
-      }
-    })
+  //   .filter((img) => img.toLowerCase().includes(searchTerm.toLowerCase()))
+  //   .sort((a, b) => {
+  //     if (sortOrder === "asc") {
+  //       return a.localeCompare(b)
+  //     } else {
+  //       return b.localeCompare(a)
+  //     }
+  //   })
 
   const totalPages = Math.max(1, Math.ceil(filteredImages.length / PAGE_SIZE))
   const clampedPage = Math.min(currentPage, totalPages)
@@ -38,17 +57,19 @@ export default function ImageGallery({ images, loading, error, onImageSelect, an
   const paginatedImages = filteredImages.slice(startIndex, startIndex + PAGE_SIZE)
 
   useEffect(() => {
-    setCurrentPage(1)
-  }, [searchTerm])
+    if (onPageChange) {
+      onPageChange(1)
+    }
+  }, [searchTerm, onPageChange])
 
   useEffect(() => {
-    if (currentPage > totalPages) {
-      setCurrentPage(totalPages)
+    if (currentPage > totalPages && onPageChange) {
+      onPageChange(totalPages)
     }
-  }, [currentPage, totalPages])
+  }, [currentPage, totalPages, onPageChange])
 
   const handleSort = () => {
-    setSortOrder(sortOrder === "asc" ? "desc" : "asc")
+    onSortChange?.(sortOrder === "asc" ? "desc" : "asc")
   }
 
   if (loading) {
@@ -92,7 +113,7 @@ export default function ImageGallery({ images, loading, error, onImageSelect, an
           <Input
             placeholder="Search images..."
             value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
+            onChange={(e) => onSearchChange?.(e.target.value)}
             className="pl-10"
           />
         </div>
@@ -173,7 +194,7 @@ export default function ImageGallery({ images, loading, error, onImageSelect, an
             <Button
               variant="outline"
               size="sm"
-              onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+              onClick={() => onPageChange?.(Math.max(1, currentPage - 1))}
               disabled={clampedPage === 1}
               className="bg-transparent"
             >
@@ -186,7 +207,7 @@ export default function ImageGallery({ images, loading, error, onImageSelect, an
             <Button
               variant="outline"
               size="sm"
-              onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
+              onClick={() => onPageChange?.(Math.min(totalPages, currentPage + 1))}
               disabled={clampedPage === totalPages}
               className="bg-transparent"
             >
