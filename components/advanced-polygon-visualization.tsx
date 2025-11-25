@@ -59,6 +59,10 @@ interface AdvancedPolygonVisualizationProps {
   onPanChange: (pan: { x: number; y: number }) => void
   interactionMode: 'pan' | 'point' | 'select'
   onInteractionModeChange: (mode: 'pan' | 'point' | 'select') => void
+  // Manual drawing props
+  isManualDrawing?: boolean
+  drawingPoints?: Array<{ x: number, y: number }>
+  onDrawingPointAdd?: (point: { x: number, y: number }) => void
   className?: string
 }
 
@@ -87,6 +91,9 @@ export default function AdvancedPolygonVisualization({
   onPanChange,
   interactionMode,
   onInteractionModeChange,
+  isManualDrawing = false,
+  drawingPoints = [],
+  onDrawingPointAdd,
   className,
 }: AdvancedPolygonVisualizationProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -113,7 +120,7 @@ export default function AdvancedPolygonVisualization({
       // Use class color if polygon has a class assigned, otherwise use default color
       const assignedClass = classes.find(cls => cls.id === polygon.classId)
       const polygonColor = assignedClass ? assignedClass.color : (polygon.color || getPolygonColor(index))
-      
+
       return {
         ...polygon,
         id: polygon.id || `polygon-${index}`,
@@ -128,16 +135,16 @@ export default function AdvancedPolygonVisualization({
     // Only update polygons if they actually changed
     setPolygons(prev => {
       if (prev.length !== enhancedPolygons.length) return enhancedPolygons
-      
+
       const hasChanged = enhancedPolygons.some((newPoly, idx) => {
         const oldPoly = prev[idx]
-        return !oldPoly || 
-               newPoly.color !== oldPoly.color ||
-               newPoly.classId !== oldPoly.classId ||
-               newPoly.className !== oldPoly.className ||
-               newPoly.visible !== oldPoly.visible
+        return !oldPoly ||
+          newPoly.color !== oldPoly.color ||
+          newPoly.classId !== oldPoly.classId ||
+          newPoly.className !== oldPoly.className ||
+          newPoly.visible !== oldPoly.visible
       })
-      
+
       return hasChanged ? enhancedPolygons : prev
     })
   }, [polygonData, classes])
@@ -177,7 +184,7 @@ export default function AdvancedPolygonVisualization({
     if (!selectedPolygonId || !onClassAssign) return
 
     const key = event.key
-    
+
     // Handle number keys for class assignment
     if (['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'].includes(key)) {
       if (!selectedPolygonId) {
@@ -192,7 +199,7 @@ export default function AdvancedPolygonVisualization({
       if (key === '0') {
         event.preventDefault()
         const targetClass = classes[9] // button_10 is at index 9
-        
+
         if (targetClass) {
           onClassAssign?.(selectedPolygonId, targetClass.id)
           toast({
@@ -205,7 +212,7 @@ export default function AdvancedPolygonVisualization({
         event.preventDefault()
         const index = parseInt(key) - 1
         const targetClass = classes[index]
-        
+
         if (targetClass) {
           onClassAssign?.(selectedPolygonId, targetClass.id)
           toast({
@@ -215,7 +222,7 @@ export default function AdvancedPolygonVisualization({
         }
       }
     }
-    
+
     // Handle Backspace to remove class assignment
     if (key === 'Backspace') {
       if (selectedPolygonId) {
@@ -236,7 +243,7 @@ export default function AdvancedPolygonVisualization({
 
     canvas.addEventListener('wheel', handleWheel, { passive: false })
     document.addEventListener('keydown', handleKeyDown)
-    
+
     return () => {
       canvas.removeEventListener('wheel', handleWheel)
       document.removeEventListener('keydown', handleKeyDown)
@@ -291,17 +298,17 @@ export default function AdvancedPolygonVisualization({
     img.onload = () => {
       // Call onImageLoad callback if provided
       onImageLoad?.()
-      
+
       // Draw image
       ctx.drawImage(img, offsetX, offsetY, scaledImageWidth, scaledImageHeight)
 
       // Draw polygons
       polygons.forEach((polygon) => {
-          if (!ctx) return
-          if (!polygon.visible) return
-          
-          const isSelected = selectedPolygonId === polygon.id
-          const color = polygon.color || "#0891b2"
+        if (!ctx) return
+        if (!polygon.visible) return
+
+        const isSelected = selectedPolygonId === polygon.id
+        const color = polygon.color || "#0891b2"
 
         // Set polygon segmentation style
         const segmentationOpacity = opacity[0]
@@ -312,7 +319,7 @@ export default function AdvancedPolygonVisualization({
             .toString(16)
             .padStart(2, "0")
         ctx.lineWidth = isSelected ? 3 : 2
-        
+
         // Add subtle glow for segmentation
         ctx.shadowColor = color
         ctx.shadowBlur = isSelected ? 8 : 4
@@ -321,10 +328,10 @@ export default function AdvancedPolygonVisualization({
         ctx.globalCompositeOperation = 'source-over'
 
         // Draw polygon segmentation based on display mode
-        const shouldShowSegmentation = segmentationVisible && 
-                                      (polygonDisplayMode === 'all' || 
-                                       (polygonDisplayMode === 'selected' && isSelected))
-        
+        const shouldShowSegmentation = segmentationVisible &&
+          (polygonDisplayMode === 'all' ||
+            (polygonDisplayMode === 'selected' && isSelected))
+
         // Draw actual segmentation polygon from SAM v2
         if (shouldShowSegmentation && polygon.segmentation) {
           console.log('=== SEGMENTATION RENDER START ===', {
@@ -335,36 +342,36 @@ export default function AdvancedPolygonVisualization({
             color,
             opacity: opacity[0]
           })
-          
+
           ctx.save()
-          
+
           // Handle different segmentation data formats
           if (Array.isArray(polygon.segmentation)) {
             // Check if it's 2D mask format (mock data)
-            if (polygon.segmentation.length > 0 && 
-                Array.isArray(polygon.segmentation[0]) && 
-                typeof polygon.segmentation[0][0] === 'boolean') {
+            if (polygon.segmentation.length > 0 &&
+              Array.isArray(polygon.segmentation[0]) &&
+              typeof polygon.segmentation[0][0] === 'boolean') {
               // 2D boolean mask - draw filled pixels
               const mask = polygon.segmentation as unknown as boolean[][]
               const [bboxX, bboxY, bboxWidth, bboxHeight] = polygon.bbox
-              
+
               for (let y = 0; y < mask.length; y++) {
                 for (let x = 0; x < mask[y].length; x++) {
                   if (mask[y][x]) {
                     const pixelX = offsetX + (bboxX + (x / mask[0].length) * bboxWidth) * scale
                     const pixelY = offsetY + (bboxY + (y / mask.length) * bboxHeight) * scale
                     const pixelSize = Math.max(2, (scale * bboxWidth) / mask[0].length)
-                    
+
                     ctx.fillRect(pixelX, pixelY, pixelSize, pixelSize)
                   }
                 }
               }
-              
+
             } else {
               // Standard polygon coordinates
               ctx.beginPath()
               let hasValidPath = false
-              
+
               if (typeof polygon.segmentation[0] === 'number') {
                 // Flat coordinate array [x1, y1, x2, y2, ...]
                 for (let i = 0; i < polygon.segmentation.length; i += 2) {
@@ -381,28 +388,28 @@ export default function AdvancedPolygonVisualization({
                 }
               } else if (Array.isArray(polygon.segmentation[0])) {
                 console.log('Drawing coordinate pairs:', polygon.segmentation)
-                // Array of coordinate pairs [[x1, y1], [x2, y2], ...]
-                ;(polygon.segmentation as any[]).forEach((point: any, i: number) => {
-                  if (Array.isArray(point) && point.length >= 2) {
-                    const x = offsetX + point[0] * scale
-                    const y = offsetY + point[1] * scale
-                    console.log(`Point ${i}: (${point[0]}, ${point[1]}) -> canvas (${x}, ${y})`)
-                    if (i === 0) {
-                      ctx.moveTo(x, y)
-                    } else {
-                      ctx.lineTo(x, y)
+                  // Array of coordinate pairs [[x1, y1], [x2, y2], ...]
+                  ; (polygon.segmentation as any[]).forEach((point: any, i: number) => {
+                    if (Array.isArray(point) && point.length >= 2) {
+                      const x = offsetX + point[0] * scale
+                      const y = offsetY + point[1] * scale
+                      console.log(`Point ${i}: (${point[0]}, ${point[1]}) -> canvas (${x}, ${y})`)
+                      if (i === 0) {
+                        ctx.moveTo(x, y)
+                      } else {
+                        ctx.lineTo(x, y)
+                      }
+                      hasValidPath = true
                     }
-                    hasValidPath = true
-                  }
-                })
+                  })
               }
-              
+
               if (hasValidPath) {
                 console.log('Closing path and filling/stroking')
                 ctx.closePath()
                 ctx.fill()
                 ctx.stroke()
-                
+
                 // Add outline for selected
                 if (isSelected) {
                   ctx.strokeStyle = 'white'
@@ -416,7 +423,7 @@ export default function AdvancedPolygonVisualization({
               }
             }
           }
-          
+
           ctx.restore()
         } else if (shouldShowSegmentation && polygon.bbox) {
           // Fallback: fill entire bbox if no segmentation data
@@ -431,12 +438,12 @@ export default function AdvancedPolygonVisualization({
           ctx.strokeRect(scaledX, scaledY, scaledWidth, scaledHeight)
           ctx.restore()
         }
-        
+
 
 
         // Bounding box drawing removed per user request
         const shouldDrawBbox = false
-        
+
         if (polygon.bbox && shouldDrawBbox) {
           const [x, y, width, height] = polygon.bbox
           const scaledX = offsetX + x * scale
@@ -446,69 +453,69 @@ export default function AdvancedPolygonVisualization({
 
           // Save current context state
           ctx.save()
-          
+
           // Set bbox-specific styles
           ctx.strokeStyle = color
           ctx.lineWidth = isSelected ? 4 : 3
           ctx.fillStyle = 'transparent'
           ctx.shadowColor = color
           ctx.shadowBlur = isSelected ? 12 : 6
-          
+
           // Draw white outline first for better contrast
           ctx.strokeStyle = 'white'
           ctx.lineWidth = (isSelected ? 4 : 3) + 2
           ctx.shadowBlur = 0
           ctx.strokeRect(scaledX - 1, scaledY - 1, scaledBboxWidth + 2, scaledBboxHeight + 2)
-          
+
           // Draw main bbox rectangle
           ctx.strokeStyle = color
           ctx.lineWidth = isSelected ? 4 : 3
           ctx.shadowColor = color
           ctx.shadowBlur = isSelected ? 12 : 6
           ctx.strokeRect(scaledX, scaledY, scaledBboxWidth, scaledBboxHeight)
-          
+
           // Draw corner indicators for better visibility
           const cornerSize = Math.min(20, Math.min(scaledBboxWidth, scaledBboxHeight) / 4)
           ctx.lineWidth = 2
           ctx.shadowBlur = 0
-          
+
           // Top-left corner
           ctx.beginPath()
           ctx.moveTo(scaledX, scaledY + cornerSize)
           ctx.lineTo(scaledX, scaledY)
           ctx.lineTo(scaledX + cornerSize, scaledY)
           ctx.stroke()
-          
+
           // Top-right corner
           ctx.beginPath()
           ctx.moveTo(scaledX + scaledBboxWidth - cornerSize, scaledY)
           ctx.lineTo(scaledX + scaledBboxWidth, scaledY)
           ctx.lineTo(scaledX + scaledBboxWidth, scaledY + cornerSize)
           ctx.stroke()
-          
+
           // Bottom-left corner
           ctx.beginPath()
           ctx.moveTo(scaledX, scaledY + scaledBboxHeight - cornerSize)
           ctx.lineTo(scaledX, scaledY + scaledBboxHeight)
           ctx.lineTo(scaledX + cornerSize, scaledY + scaledBboxHeight)
           ctx.stroke()
-          
+
           // Bottom-right corner
           ctx.beginPath()
           ctx.moveTo(scaledX + scaledBboxWidth - cornerSize, scaledY + scaledBboxHeight)
           ctx.lineTo(scaledX + scaledBboxWidth, scaledY + scaledBboxHeight)
           ctx.lineTo(scaledX + scaledBboxWidth, scaledY + scaledBboxHeight - cornerSize)
           ctx.stroke()
-          
+
           // Restore context
           ctx.restore()
         }
 
         // Draw label based on display mode  
-        const shouldShowLabel = showLabels && 
-                               (polygonDisplayMode === 'all' || 
-                                (polygonDisplayMode === 'selected' && isSelected))
-        
+        const shouldShowLabel = showLabels &&
+          (polygonDisplayMode === 'all' ||
+            (polygonDisplayMode === 'selected' && isSelected))
+
         if (shouldShowLabel && polygon.bbox) {
           const [x, y] = polygon.bbox
           const labelX = offsetX + x * scale
@@ -520,7 +527,7 @@ export default function AdvancedPolygonVisualization({
           const padding = 3  // 더 작은 패딩
           const labelWidth = textMetrics.width + padding * 2
           const labelHeight = 13  // 더 낮은 높이
-          
+
           // Semi-transparent dark background for subtlety
           ctx.fillStyle = "rgba(0, 0, 0, 0.6)"  // 반투명 검은 배경
           ctx.fillRect(labelX - padding, labelY - labelHeight + 3, labelWidth, labelHeight)
@@ -532,7 +539,7 @@ export default function AdvancedPolygonVisualization({
           ctx.shadowOffsetX = 0.5
           ctx.shadowOffsetY = 0.5
           ctx.fillText(polygon.label || "", labelX, labelY)
-          
+
           // Reset shadow
           ctx.shadowColor = "transparent"
           ctx.shadowBlur = 0
@@ -547,19 +554,82 @@ export default function AdvancedPolygonVisualization({
       ctx.shadowBlur = 0
       ctx.shadowColor = 'transparent'
       ctx.globalCompositeOperation = 'source-over'
+
+      // Draw manual drawing points and lines
+      if (isManualDrawing && drawingPoints.length > 0) {
+        ctx.save()
+
+        // Draw lines connecting points
+        if (drawingPoints.length > 1) {
+          ctx.beginPath()
+          drawingPoints.forEach((point, index) => {
+            const x = offsetX + point.x * scale
+            const y = offsetY + point.y * scale
+            if (index === 0) {
+              ctx.moveTo(x, y)
+            } else {
+              ctx.lineTo(x, y)
+            }
+          })
+          ctx.strokeStyle = '#0891b2'
+          ctx.lineWidth = 2
+          ctx.stroke()
+
+          // Draw preview line to close polygon
+          if (drawingPoints.length >= 2) {
+            ctx.setLineDash([5, 5])
+            ctx.beginPath()
+            const lastPoint = drawingPoints[drawingPoints.length - 1]
+            const firstPoint = drawingPoints[0]
+            ctx.moveTo(offsetX + lastPoint.x * scale, offsetY + lastPoint.y * scale)
+            ctx.lineTo(offsetX + firstPoint.x * scale, offsetY + firstPoint.y * scale)
+            ctx.strokeStyle = '#0891b2'
+            ctx.lineWidth = 1
+            ctx.stroke()
+            ctx.setLineDash([])
+          }
+        }
+
+        // Draw points
+        drawingPoints.forEach((point, index) => {
+          const x = offsetX + point.x * scale
+          const y = offsetY + point.y * scale
+
+          // Outer circle
+          ctx.beginPath()
+          ctx.arc(x, y, 6, 0, Math.PI * 2)
+          ctx.fillStyle = '#0891b2'
+          ctx.fill()
+
+          // Inner circle
+          ctx.beginPath()
+          ctx.arc(x, y, 3, 0, Math.PI * 2)
+          ctx.fillStyle = 'white'
+          ctx.fill()
+
+          // Point number
+          ctx.fillStyle = 'white'
+          ctx.font = 'bold 10px sans-serif'
+          ctx.textAlign = 'center'
+          ctx.textBaseline = 'middle'
+          ctx.fillText((index + 1).toString(), x, y)
+        })
+
+        ctx.restore()
+      }
     }
 
     img.src = imageUrl
-  }, [imageUrl, polygons, imageWidth, imageHeight, zoom, pan, selectedPolygonId, showLabels, opacity, segmentationVisible, polygonDisplayMode])
+  }, [imageUrl, polygons, imageWidth, imageHeight, zoom, pan, selectedPolygonId, showLabels, opacity, segmentationVisible, polygonDisplayMode, isManualDrawing, drawingPoints])
 
   // Trigger drawing when dependencies change, but with debouncing
   useEffect(() => {
     const timeoutId = setTimeout(() => {
       drawVisualization()
     }, 16) // ~60fps
-    
+
     return () => clearTimeout(timeoutId)
-  }, [imageUrl, polygons, zoom, pan, selectedPolygonId, showLabels, opacity, segmentationVisible, polygonDisplayMode, drawVisualization])
+  }, [imageUrl, polygons, zoom, pan, selectedPolygonId, showLabels, opacity, segmentationVisible, polygonDisplayMode, isManualDrawing, drawingPoints, drawVisualization])
 
   // Helper to check if a point is inside a polygon
   const isPointInPolygon = (x: number, y: number, polygon: PolygonData): boolean => {
@@ -576,30 +646,30 @@ export default function AdvancedPolygonVisualization({
 
     if (Array.isArray(polygon.segmentation)) {
       // Case A: 2D Boolean Mask
-      if (polygon.segmentation.length > 0 && 
-          Array.isArray(polygon.segmentation[0]) && 
-          typeof polygon.segmentation[0][0] === 'boolean') {
-        
+      if (polygon.segmentation.length > 0 &&
+        Array.isArray(polygon.segmentation[0]) &&
+        typeof polygon.segmentation[0][0] === 'boolean') {
+
         const mask = polygon.segmentation as unknown as boolean[][]
         const [bx, by, bw, bh] = polygon.bbox
-        
+
         // Map global x,y to mask coordinates
         // Mask covers the bbox area
         const maskWidth = mask[0].length
         const maskHeight = mask.length
-        
+
         const relativeX = x - bx
         const relativeY = y - by
-        
+
         const maskX = Math.floor((relativeX / bw) * maskWidth)
         const maskY = Math.floor((relativeY / bh) * maskHeight)
-        
+
         if (maskY >= 0 && maskY < maskHeight && maskX >= 0 && maskX < maskWidth) {
           return mask[maskY][maskX]
         }
         return false
       }
-      
+
       // Case B: Flat Coordinate Array [x1, y1, x2, y2, ...]
       if (typeof polygon.segmentation[0] === 'number') {
         const points = polygon.segmentation as number[]
@@ -607,14 +677,14 @@ export default function AdvancedPolygonVisualization({
         for (let i = 0, j = points.length - 2; i < points.length; j = i, i += 2) {
           const xi = points[i], yi = points[i + 1]
           const xj = points[j], yj = points[j + 1]
-          
+
           const intersect = ((yi > y) !== (yj > y)) &&
             (x < (xj - xi) * (y - yi) / (yj - yi) + xi)
           if (intersect) inside = !inside
         }
         return inside
       }
-      
+
       // Case C: Array of Coordinate Pairs [[x1, y1], [x2, y2], ...]
       if (Array.isArray(polygon.segmentation[0])) {
         const points = polygon.segmentation as number[][]
@@ -622,7 +692,7 @@ export default function AdvancedPolygonVisualization({
         for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
           const xi = points[i][0], yi = points[i][1]
           const xj = points[j][0], yj = points[j][1]
-          
+
           const intersect = ((yi > y) !== (yj > y)) &&
             (x < (xj - xi) * (y - yi) / (yj - yi) + xi)
           if (intersect) inside = !inside
@@ -662,7 +732,14 @@ export default function AdvancedPolygonVisualization({
     if (imageX >= 0 && imageX <= imageWidth && imageY >= 0 && imageY <= imageHeight) {
       const realX = Math.round(imageX)
       const realY = Math.round(imageY)
-      
+
+      // Manual drawing mode
+      if (isManualDrawing && onDrawingPointAdd) {
+        console.log("✏️ Adding drawing point:", { realX, realY })
+        onDrawingPointAdd({ x: realX, y: realY })
+        return
+      }
+
       if (interactionMode === 'point') {
         if (isProcessing || !onPointClick) return
         console.log("🖱️ Canvas clicked for point segmentation:", { realX, realY })
@@ -719,16 +796,15 @@ export default function AdvancedPolygonVisualization({
 
   return (
     <>
-    <div ref={containerRef} className={`relative w-full bg-muted/10 rounded-lg overflow-hidden cursor-crosshair touch-none ${className || 'h-[600px]'}`}>
-      <canvas
-        ref={canvasRef}
-          className={`absolute inset-0 w-full h-full ${
-            isPanning 
-              ? 'cursor-grabbing' 
-              : interactionMode === 'pan' 
-                ? 'cursor-grab' 
-                : 'cursor-crosshair'
-          }`}
+      <div ref={containerRef} className={`relative w-full bg-muted/10 rounded-lg overflow-hidden cursor-crosshair touch-none ${className || 'h-[600px]'}`}>
+        <canvas
+          ref={canvasRef}
+          className={`absolute inset-0 w-full h-full ${isPanning
+            ? 'cursor-grabbing'
+            : interactionMode === 'pan'
+              ? 'cursor-grab'
+              : 'cursor-crosshair'
+            }`}
           onClick={handleCanvasClick}
           onMouseDown={handleMouseDown}
           onMouseMove={handleMouseMove}

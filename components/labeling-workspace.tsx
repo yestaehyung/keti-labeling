@@ -64,21 +64,23 @@ export default function LabelingWorkspace({
   const [selectedPoints, setSelectedPoints] = useState<any[]>([])
   const [pointProcessing, setPointProcessing] = useState<Record<string, string>>({})
   const [clickProcessing, setClickProcessing] = useState(false)
-  const [processingContext, setProcessingContext] = useState<"sam" | "gemini" | "point" | null>(null)
+  const [processingContext, setProcessingContext] = useState<"sam" | "gemini" | "point" | "hilips" | "manual" | null>(null)
   const [geminiPrompt, setGeminiPrompt] = useState("")
+  const [isManualDrawing, setIsManualDrawing] = useState(false)
+  const [drawingPoints, setDrawingPoints] = useState<Array<{ x: number, y: number }>>([])
   const [classes, setClasses] = useState<ClassDefinition[]>([])
   const [isSavingAnnotations, setIsSavingAnnotations] = useState(false)
 
   const [selectedClassId, setSelectedClassId] = useState<string | null>(null)
   const [selectedPolygonId, setSelectedPolygonId] = useState<string | null>(null)
-  
+
   // Immersive Mode State
   const [zoom, setZoom] = useState(1)
   const [pan, setPan] = useState({ x: 0, y: 0 })
   const [interactionMode, setInteractionMode] = useState<'pan' | 'point' | 'select'>('point')
   const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState(true)
   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(true)
-  
+
   const imageRef = useRef<HTMLImageElement>(null)
   const { toast } = useToast()
 
@@ -148,7 +150,7 @@ export default function LabelingWorkspace({
       localStorage.removeItem(storageKey)
     }
   }, [classes])
-  
+
   // Track previous image to prevent unnecessary resets
   const prevImageRef = useRef<string | null>(null)
 
@@ -158,14 +160,14 @@ export default function LabelingWorkspace({
     if (selectedImage === prevImageRef.current) {
       return
     }
-    
+
     console.log("🔄 Image changed, resetting workspace state for:", selectedImage)
     prevImageRef.current = selectedImage
-    
+
     // Reset polygons to initial annotations for the new image
     // Deep copy to avoid reference issues
     setPolygonData(initialAnnotations ? JSON.parse(JSON.stringify(initialAnnotations)) : [])
-    
+
     // Reset other state
     setProcessingStatus(null)
     setRawServerLog(null)
@@ -178,7 +180,7 @@ export default function LabelingWorkspace({
     setProcessingContext(null)
     setGeminiPrompt("")
     setIsSavingAnnotations(false)
-    
+
   }, [selectedImage, initialAnnotations])
 
   // Handle image load to get actual dimensions
@@ -343,7 +345,7 @@ export default function LabelingWorkspace({
     setSelectedPolygonId(null) // Clear selected polygon
     persistAnnotations(null)
     onAnnotationsSave?.(selectedImage, [])
-    
+
     toast({
       title: "Results Cleared",
       description: "All detection results have been cleared.",
@@ -355,7 +357,7 @@ export default function LabelingWorkspace({
     if (!polygonData || !polygonId) return
 
     const selectedClass = classes.find(cls => cls.id === classId)
-    
+
     const updatedPolygons = polygonData.map((polygon, index) => {
       const polygonKey = getPolygonKey(polygon, index)
       if (polygonKey !== polygonId) {
@@ -581,7 +583,7 @@ export default function LabelingWorkspace({
     console.log("🔄 Starting polygon generation from point:", { x, y })
     setClickProcessing(true)
     setProcessingContext("point")
-    
+
     try {
       const pointData = {
         filename: selectedImage,
@@ -655,22 +657,22 @@ export default function LabelingWorkspace({
 
   const handleImageClick = async (event: React.MouseEvent<HTMLImageElement>) => {
     console.log("🖱️ Image clicked!")
-    
+
     if (clickProcessing || isProcessing) {
       console.log("⏳ Already processing, ignoring click")
       return
     }
-    
+
     const rect = event.currentTarget.getBoundingClientRect()
     const x = event.clientX - rect.left
     const y = event.clientY - rect.top
-    
+
     // Calculate real coordinates based on image scaling
     const scaleX = imageSize.width / rect.width
     const scaleY = imageSize.height / rect.height
     const realX = Math.round(x * scaleX)
     const realY = Math.round(y * scaleY)
-    
+
     console.log("📍 Click coordinates:", {
       clientX: event.clientX,
       clientY: event.clientY,
@@ -686,7 +688,7 @@ export default function LabelingWorkspace({
       realX,
       realY
     })
-    
+
     await generatePolygonFromPoint(realX, realY)
   }
 
@@ -994,7 +996,7 @@ export default function LabelingWorkspace({
       {/* Main Workspace */}
       <div className="flex-1 flex overflow-hidden relative">
         {/* Left Sidebar (Classes) */}
-        <aside 
+        <aside
           className={`
             bg-card border-r transition-all duration-300 ease-in-out flex flex-col
             ${isLeftSidebarOpen ? 'w-64 translate-x-0' : 'w-0 -translate-x-full opacity-0 overflow-hidden'}
@@ -1005,9 +1007,9 @@ export default function LabelingWorkspace({
             <Badge variant="secondary" className="text-xs">{classes.length}</Badge>
           </div>
           <div className="flex-1 overflow-y-auto p-2">
-            <ClassManager 
-              classes={classes} 
-              onClassesChange={setClasses} 
+            <ClassManager
+              classes={classes}
+              onClassesChange={setClasses}
               selectedClassId={selectedClassId}
               onClassSelect={(classId) => {
                 setSelectedClassId(classId)
@@ -1036,7 +1038,7 @@ export default function LabelingWorkspace({
               processingMessage={visualizationProcessingMessage}
               processingDescription={visualizationProcessingDescription}
               onImageLoad={handleImageLoad}
-              onPointClick={generatePolygonFromPoint}
+              onPointClick={isManualDrawing ? undefined : generatePolygonFromPoint}
               selectedPolygonId={selectedPolygonId}
               onSelectPolygon={setSelectedPolygonId}
               onPolygonUpdate={(updatedPolygons) => {
@@ -1052,6 +1054,12 @@ export default function LabelingWorkspace({
               onPanChange={setPan}
               interactionMode={interactionMode}
               onInteractionModeChange={setInteractionMode}
+              // Manual Drawing
+              isManualDrawing={isManualDrawing}
+              drawingPoints={drawingPoints}
+              onDrawingPointAdd={(point) => {
+                setDrawingPoints(prev => [...prev, point])
+              }}
               className="h-full"
             />
           </div>
@@ -1059,9 +1067,9 @@ export default function LabelingWorkspace({
           {/* Floating Toolbar */}
           <div className="absolute bottom-6 left-1/2 transform -translate-x-1/2 bg-background/80 backdrop-blur-md border shadow-lg rounded-full px-4 py-2 flex items-center space-x-2 z-40">
             {/* Left Sidebar Toggle */}
-            <Button 
-              variant="ghost" 
-              size="icon" 
+            <Button
+              variant="ghost"
+              size="icon"
               className="h-8 w-8 rounded-full"
               onClick={() => setIsLeftSidebarOpen(!isLeftSidebarOpen)}
               title={isLeftSidebarOpen ? "Close Left Sidebar" : "Open Left Sidebar"}
@@ -1072,27 +1080,27 @@ export default function LabelingWorkspace({
             <div className="w-px h-4 bg-border mx-2" />
 
             {/* Tools */}
-            <Button 
-              variant={interactionMode === 'select' ? 'secondary' : 'ghost'} 
-              size="icon" 
+            <Button
+              variant={interactionMode === 'select' ? 'secondary' : 'ghost'}
+              size="icon"
               className="h-8 w-8 rounded-full"
               onClick={() => setInteractionMode('select')}
               title="Select Tool (V)"
             >
               <MousePointer2 className="h-4 w-4" />
             </Button>
-            <Button 
-              variant={interactionMode === 'pan' ? 'secondary' : 'ghost'} 
-              size="icon" 
+            <Button
+              variant={interactionMode === 'pan' ? 'secondary' : 'ghost'}
+              size="icon"
               className="h-8 w-8 rounded-full"
               onClick={() => setInteractionMode('pan')}
               title="Pan Tool (H)"
             >
               <Hand className="h-4 w-4" />
             </Button>
-            <Button 
-              variant={interactionMode === 'point' ? 'secondary' : 'ghost'} 
-              size="icon" 
+            <Button
+              variant={interactionMode === 'point' ? 'secondary' : 'ghost'}
+              size="icon"
               className="h-8 w-8 rounded-full"
               onClick={() => setInteractionMode('point')}
               title="Point Tool (P)"
@@ -1103,26 +1111,26 @@ export default function LabelingWorkspace({
             <div className="w-px h-4 bg-border mx-2" />
 
             {/* Zoom */}
-            <Button 
-              variant="ghost" 
-              size="icon" 
+            <Button
+              variant="ghost"
+              size="icon"
               className="h-8 w-8 rounded-full"
               onClick={() => setZoom(z => Math.max(0.1, z * 0.8))}
             >
               <ZoomOut className="h-4 w-4" />
             </Button>
             <span className="text-xs font-medium w-12 text-center">{Math.round(zoom * 100)}%</span>
-            <Button 
-              variant="ghost" 
-              size="icon" 
+            <Button
+              variant="ghost"
+              size="icon"
               className="h-8 w-8 rounded-full"
               onClick={() => setZoom(z => Math.min(5, z * 1.2))}
             >
               <ZoomIn className="h-4 w-4" />
             </Button>
-            <Button 
-              variant="ghost" 
-              size="icon" 
+            <Button
+              variant="ghost"
+              size="icon"
               className="h-8 w-8 rounded-full"
               onClick={() => {
                 setZoom(1)
@@ -1136,9 +1144,9 @@ export default function LabelingWorkspace({
             <div className="w-px h-4 bg-border mx-2" />
 
             {/* Right Sidebar Toggle */}
-            <Button 
-              variant="ghost" 
-              size="icon" 
+            <Button
+              variant="ghost"
+              size="icon"
               className="h-8 w-8 rounded-full"
               onClick={() => setIsRightSidebarOpen(!isRightSidebarOpen)}
               title={isRightSidebarOpen ? "Close Right Sidebar" : "Open Right Sidebar"}
@@ -1149,7 +1157,7 @@ export default function LabelingWorkspace({
         </main>
 
         {/* Right Sidebar (AI Tools & Results & Polygon List) */}
-        <aside 
+        <aside
           className={`
             bg-card border-l transition-all duration-300 ease-in-out flex flex-col
             ${isRightSidebarOpen ? 'w-80 translate-x-0' : 'w-0 translate-x-full opacity-0 overflow-hidden'}
@@ -1162,9 +1170,28 @@ export default function LabelingWorkspace({
                 <Sparkles className="mr-2 h-4 w-4 text-primary" />
                 AI Tools
               </h3>
-              
+
               <div className="grid grid-cols-2 gap-2">
-                <Card 
+                <Card
+                  className={`cursor-pointer transition-all hover:border-primary ${processingContext === 'manual' ? 'border-primary bg-primary/5' : ''}`}
+                  onClick={() => {
+                    setProcessingContext('manual')
+                    setIsManualDrawing(false)
+                    setDrawingPoints([])
+                  }}
+                >
+                  <CardContent className="p-3 flex flex-col items-center text-center space-y-2">
+                    <div className="p-2 rounded-full bg-primary/10 text-primary">
+                      <Target className="h-4 w-4" />
+                    </div>
+                    <div>
+                      <div className="font-medium text-xs">Manual</div>
+                      <div className="text-[10px] text-muted-foreground">Draw Polygon</div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card
                   className={`cursor-pointer transition-all hover:border-primary ${processingContext === 'sam' ? 'border-primary bg-primary/5' : ''}`}
                   onClick={() => setProcessingContext('sam')}
                 >
@@ -1179,7 +1206,7 @@ export default function LabelingWorkspace({
                   </CardContent>
                 </Card>
 
-                <Card 
+                <Card
                   className={`cursor-pointer transition-all hover:border-primary ${processingContext === 'gemini' ? 'border-primary bg-primary/5' : ''}`}
                   onClick={() => setProcessingContext('gemini')}
                 >
@@ -1188,12 +1215,147 @@ export default function LabelingWorkspace({
                       <Sparkles className="h-4 w-4" />
                     </div>
                     <div>
-                      <div className="font-medium text-xs">Gemini</div>
+                      <div className="font-medium text-xs">SAM + LLM</div>
                       <div className="text-[10px] text-muted-foreground">Text to Mask</div>
                     </div>
                   </CardContent>
                 </Card>
+
+                <Card
+                  className={`cursor-pointer transition-all hover:border-primary ${processingContext === 'hilips' ? 'border-primary bg-primary/5' : ''}`}
+                  onClick={() => setProcessingContext('hilips')}
+                >
+                  <CardContent className="p-3 flex flex-col items-center text-center space-y-2">
+                    <div className="p-2 rounded-full bg-primary/10 text-primary">
+                      <Sparkles className="h-4 w-4" />
+                    </div>
+                    <div>
+                      <div className="font-medium text-xs">HILIPS</div>
+                      <div className="text-[10px] text-muted-foreground">Automated labeling</div>
+                    </div>
+                  </CardContent>
+                </Card>
               </div>
+
+              {processingContext === 'manual' && (
+                <div className="space-y-2 animate-in fade-in slide-in-from-top-2">
+                  <Label className="text-xs">Manual Polygon Drawing</Label>
+                  {!isManualDrawing ? (
+                    <Button
+                      size="sm"
+                      onClick={() => {
+                        setIsManualDrawing(true)
+                        setDrawingPoints([])
+                        setInteractionMode('point')
+                        toast({
+                          title: "Drawing mode activated",
+                          description: "Click on the image to add points. Double-click or press Enter to complete.",
+                        })
+                      }}
+                      className="w-full h-8"
+                    >
+                      Start Drawing
+                    </Button>
+                  ) : (
+                    <div className="space-y-2">
+                      <div className="text-xs text-muted-foreground">
+                        Points: {drawingPoints.length} {drawingPoints.length >= 3 ? '(min 3 required)' : ''}
+                      </div>
+                      <div className="flex space-x-2">
+                        <Button
+                          size="sm"
+                          onClick={() => {
+                            if (drawingPoints.length < 3) {
+                              toast({
+                                variant: "destructive",
+                                title: "Need more points",
+                                description: "Please add at least 3 points to create a polygon.",
+                              })
+                              return
+                            }
+                            // Create polygon from points
+                            const flatCoords: number[] = []
+                            drawingPoints.forEach(p => {
+                              flatCoords.push(p.x, p.y)
+                            })
+
+                            // Calculate bounding box
+                            const xs = drawingPoints.map(p => p.x)
+                            const ys = drawingPoints.map(p => p.y)
+                            const minX = Math.min(...xs)
+                            const minY = Math.min(...ys)
+                            const maxX = Math.max(...xs)
+                            const maxY = Math.max(...ys)
+                            const bbox = [minX, minY, maxX - minX, maxY - minY]
+
+                            // Calculate area (simple polygon area formula)
+                            let area = 0
+                            for (let i = 0; i < drawingPoints.length; i++) {
+                              const j = (i + 1) % drawingPoints.length
+                              area += drawingPoints[i].x * drawingPoints[j].y
+                              area -= drawingPoints[j].x * drawingPoints[i].y
+                            }
+                            area = Math.abs(area / 2)
+
+                            const newPolygon = {
+                              id: createPolygonId('manual'),
+                              segmentation: flatCoords,
+                              area: area,
+                              bbox: bbox,
+                              predicted_iou: 1.0,
+                              stability_score: 1.0,
+                              point_coords: [],
+                              crop_box: [0, 0, imageSize.width, imageSize.height],
+                              label: `Manual ${(polygonData?.length || 0) + 1}`,
+                              source: 'manual',
+                            }
+
+                            setPolygonData(prev => prev ? [...prev, newPolygon] : [newPolygon])
+                            setIsManualDrawing(false)
+                            setDrawingPoints([])
+
+                            toast({
+                              title: "Polygon created",
+                              description: `Created manual polygon with ${drawingPoints.length} points.`,
+                            })
+                          }}
+                          disabled={drawingPoints.length < 3}
+                          className="flex-1 h-8"
+                        >
+                          Complete
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            setIsManualDrawing(false)
+                            setDrawingPoints([])
+                            toast({
+                              title: "Drawing cancelled",
+                              description: "Manual drawing has been cancelled.",
+                            })
+                          }}
+                          className="flex-1 h-8"
+                        >
+                          Cancel
+                        </Button>
+                      </div>
+                      {drawingPoints.length > 0 && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => {
+                            setDrawingPoints(prev => prev.slice(0, -1))
+                          }}
+                          className="w-full h-7 text-xs"
+                        >
+                          Undo Last Point
+                        </Button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {processingContext === 'gemini' && (
                 <div className="space-y-2 animate-in fade-in slide-in-from-top-2">
@@ -1211,8 +1373,8 @@ export default function LabelingWorkspace({
                         }
                       }}
                     />
-                    <Button 
-                      size="sm" 
+                    <Button
+                      size="sm"
                       onClick={handleGeminiProcessing}
                       disabled={isGeminiDisabled}
                       className="h-8 px-3"
@@ -1238,8 +1400,8 @@ export default function LabelingWorkspace({
                   <div className="bg-accent/30 p-3 rounded-md space-y-3 border">
                     <div className="space-y-1.5">
                       <Label className="text-xs font-medium">Assigned Class</Label>
-                      <Select 
-                        value={resolvedSelectedPolygon.classId || "unlabeled"} 
+                      <Select
+                        value={resolvedSelectedPolygon.classId || "unlabeled"}
                         onValueChange={(value) => {
                           if (!selectedPolygonId) return
                           if (value === "unlabeled") {
@@ -1259,8 +1421,8 @@ export default function LabelingWorkspace({
                           {classes.map(cls => (
                             <SelectItem key={cls.id} value={cls.id}>
                               <div className="flex items-center">
-                                <div 
-                                  className="w-2 h-2 rounded-full mr-2" 
+                                <div
+                                  className="w-2 h-2 rounded-full mr-2"
                                   style={{ backgroundColor: cls.color }}
                                 />
                                 {cls.name}
@@ -1270,7 +1432,7 @@ export default function LabelingWorkspace({
                         </SelectContent>
                       </Select>
                     </div>
-                    
+
                     <div className="grid grid-cols-2 gap-2 text-[10px] text-muted-foreground">
                       <div className="bg-background/50 p-1.5 rounded border">
                         <span className="block opacity-70">Confidence</span>
@@ -1337,8 +1499,8 @@ export default function LabelingWorkspace({
                         onClick={() => setSelectedPolygonId(polygonKey)}
                       >
                         <div className="flex items-center space-x-2 overflow-hidden">
-                          <div 
-                            className="w-3 h-3 rounded-full flex-shrink-0" 
+                          <div
+                            className="w-3 h-3 rounded-full flex-shrink-0"
                             style={{ backgroundColor: polygon.color || '#ccc' }}
                           />
                           <span className="truncate font-medium">
@@ -1399,9 +1561,9 @@ export default function LabelingWorkspace({
               </div>
             </div>
 
-            <Button 
-              variant="outline" 
-              size="sm" 
+            <Button
+              variant="outline"
+              size="sm"
               className="w-full text-destructive hover:text-destructive"
               onClick={handleClearResults}
             >
