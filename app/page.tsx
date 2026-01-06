@@ -11,7 +11,9 @@ import ImageGalleryFilter, { type FilterType } from "@/components/image-gallery-
 import LabelingWorkspace from "@/components/labeling-workspace";
 import MainHeader from "@/components/main-header";
 import BatchAutoLabelDialog from "@/components/batch-auto-label-dialog";
-import { Bot } from "lucide-react";
+import WorkflowSummaryCard from "@/components/workflow-summary-card";
+import { useWorkflowStatus } from "@/hooks/use-workflow-status";
+import { Bot, Brain } from "lucide-react";
 
 export default function Home() {
   const [isDarkMode, setIsDarkMode] = useState(false);
@@ -28,6 +30,8 @@ export default function Home() {
   const [filterType, setFilterType] = useState<FilterType>("all");
   const [needsReviewImages, setNeedsReviewImages] = useState<string[]>([]);
   const [batchDialogOpen, setBatchDialogOpen] = useState(false);
+  
+  const { summary: workflowSummary, loading: workflowLoading } = useWorkflowStatus(15000);
 
   useEffect(() => {
     const savedDarkMode = localStorage.getItem("darkMode") === "true";
@@ -384,6 +388,12 @@ export default function Home() {
 
       <main className="container mx-auto px-4 py-6">
         <div className="space-y-6">
+          <WorkflowSummaryCard 
+            summary={workflowSummary} 
+            loading={workflowLoading} 
+            compact={true} 
+          />
+
           <div className="flex items-center justify-between">
             <div>
               <h2 className="text-2xl font-semibold tracking-tight">Dataset Gallery</h2>
@@ -392,6 +402,17 @@ export default function Home() {
               </p>
             </div>
             <div className="flex items-center gap-3">
+              {workflowSummary && workflowSummary.queues.reviewed_since_last_train >= 10 && (
+                <Button
+                  variant="default"
+                  size="sm"
+                  onClick={() => window.location.href = '/training'}
+                  className="gap-2"
+                >
+                  <Brain className="h-4 w-4" />
+                  Retrain ({workflowSummary.queues.reviewed_since_last_train} reviewed)
+                </Button>
+              )}
               <Button
                 variant="outline"
                 size="sm"

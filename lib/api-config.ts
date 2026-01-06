@@ -54,6 +54,19 @@ export const API_CONFIG = {
     SCHEDULER_TRIGGER_AUTO: "/api/scheduler/trigger/auto-annotate",
     SCHEDULER_TRIGGER_DISTILL: "/api/scheduler/trigger/distillation",
     
+    // Workflow State (Dashboard)
+    WORKFLOW_STATE: "/api/workflow/state",
+    WORKFLOW_SUMMARY: "/api/workflow/summary",
+    WORKFLOW_NEXT_ACTION: "/api/workflow/next-action",
+    WORKFLOW_ITERATIONS: "/api/workflow/iterations",
+    WORKFLOW_AUTOMATION_TREND: "/api/workflow/automation-trend",
+    WORKFLOW_SET_PHASE: "/api/workflow/phase",
+    WORKFLOW_START_ITERATION: "/api/workflow/iteration/start",
+    
+    // Active Learning Stats
+    ACTIVE_LEARNING_STATS: "/api/active-learning/stats",
+    ACTIVE_LEARNING_REVIEW_HISTORY: "/api/active-learning/review-history",
+    
     // Batch Auto-Labeling
     BATCH_INFERENCE: "/api/models",
     LABELING_STATUS: "/api/labeling-status",

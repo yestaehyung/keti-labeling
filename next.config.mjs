@@ -18,14 +18,16 @@ const nextConfig = {
     ],
   },
   async rewrites() {
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://166.104.112.110:8000'
+
     return [
       {
         source: '/images/:path*',
-        destination: 'http://166.104.112.110:8000/images/:path*',
+        destination: `${apiUrl}/images/:path*`,
       },
       {
         source: '/api/:path*',
-        destination: 'http://166.104.112.110:8000/api/:path*',
+        destination: `${apiUrl}/api/:path*`,
       },
     ]
   },
