@@ -11,7 +11,7 @@ const nextConfig = {
     remotePatterns: [
       {
         protocol: 'http',
-        hostname: '114.110.129.109',
+        hostname: '166.104.112.110',
         port: '8000',
         pathname: '/images/**',
       },
@@ -21,11 +21,11 @@ const nextConfig = {
     return [
       {
         source: '/images/:path*',
-        destination: 'http://114.110.129.109:8000/images/:path*',
+        destination: 'http://166.104.112.110:8000/images/:path*',
       },
       {
         source: '/api/:path*',
-        destination: 'http://114.110.129.109:8000/api/:path*',
+        destination: 'http://166.104.112.110:8000/api/:path*',
       },
     ]
   },

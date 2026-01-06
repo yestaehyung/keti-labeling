@@ -59,10 +59,10 @@ export default function TrainingPage() {
   const [selectedServerAnnotations, setSelectedServerAnnotations] = useState<string[]>([])
   const [loadingServerAnnotations, setLoadingServerAnnotations] = useState(false)
   const [trainingConfig, setTrainingConfig] = useState<TrainingConfig>({
-    modelType: "segmentation",
+    modelType: "yolo-v8",
     epochs: 100,
     learningRate: 0.001,
-    batchSize: 16
+    batchSize: 32
   })
   const [imgSize, setImgSize] = useState<number>(640)
   const [modelName, setModelName] = useState<string>("my_button_detector")
@@ -85,20 +85,20 @@ export default function TrainingPage() {
   const validateJsonFile = (content: any): boolean => {
     try {
       if (!content || typeof content !== 'object') return false
-      
+
       // Basic validation for annotation format
       if (Array.isArray(content)) {
-        return content.every(item => 
-          item.hasOwnProperty('image_id') || 
+        return content.every(item =>
+          item.hasOwnProperty('image_id') ||
           item.hasOwnProperty('filename') ||
           item.hasOwnProperty('annotations')
         )
       }
-      
+
       if (content.hasOwnProperty('annotations') || content.hasOwnProperty('images')) {
         return true
       }
-      
+
       return false
     } catch {
       return false
@@ -293,7 +293,7 @@ export default function TrainingPage() {
           epochs: trainingConfig.epochs,
           batch_size: trainingConfig.batchSize,
           img_size: imgSize,
-          model_name: (modelName && modelName.trim().length > 0) ? modelName.trim() : `ketilabel_${Date.now()}`,
+          model_name: (modelName && modelName.trim().length > 0) ? modelName.trim() : `hilips_${Date.now()}`,
         }
 
         const res = await apiCall(API_CONFIG.ENDPOINTS.TRAIN_START, {
@@ -347,29 +347,24 @@ export default function TrainingPage() {
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
-      <header className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <div className="container mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex h-16 items-center justify-between">
-            <div className="flex items-center space-x-4">
-              <div className="flex items-center space-x-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-sm">
-                  <Brain className="h-6 w-6" />
-                </div>
-                <div>
-                  <h1 className="text-xl font-bold font-sans tracking-tight">KETIlabel</h1>
-                  <p className="text-xs text-muted-foreground font-mono">AI-Powered Annotation</p>
-                </div>
+      <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+        <div className="container mx-auto px-4 h-14 flex items-center justify-between">
+          <div className="flex items-center gap-6">
+            <div className="flex items-center gap-2">
+              <div className="bg-primary/10 p-1.5 rounded-md">
+                <Brain className="h-5 w-5 text-primary" />
               </div>
+              <span className="text-lg font-bold tracking-tight">HILIPS Training</span>
             </div>
+          </div>
 
-            <div className="flex items-center space-x-4">
-              <Link href="/">
-                <Button variant="ghost" size="sm">
-                  <ArrowLeft className="mr-2 h-4 w-4" />
-                  Back to Labeling
-                </Button>
-              </Link>
-            </div>
+          <div className="flex items-center gap-2">
+            <Link href="/">
+              <Button variant="ghost" size="sm" className="gap-2">
+                <ArrowLeft className="h-4 w-4" />
+                Back to Dashboard
+              </Button>
+            </Link>
           </div>
         </div>
       </header>
@@ -381,7 +376,7 @@ export default function TrainingPage() {
           <div className="mb-8">
             <h1 className="text-3xl font-bold tracking-tight mb-2">Model Training</h1>
             <p className="text-muted-foreground text-lg">
-              Configure your model parameters and select data to start training.
+              Configure your YOLO model parameters.
             </p>
           </div>
 
@@ -414,11 +409,10 @@ export default function TrainingPage() {
                     <TabsContent value="local" className="space-y-4">
                       <div
                         {...getRootProps()}
-                        className={`border-2 border-dashed rounded-xl p-10 text-center cursor-pointer transition-all duration-200 ${
-                          isDragActive
-                            ? 'border-primary bg-primary/5 scale-[0.99]'
-                            : 'border-muted-foreground/20 hover:border-primary/50 hover:bg-muted/50'
-                        }`}
+                        className={`border-2 border-dashed rounded-xl p-10 text-center cursor-pointer transition-all duration-200 ${isDragActive
+                          ? 'border-primary bg-primary/5 scale-[0.99]'
+                          : 'border-muted-foreground/20 hover:border-primary/50 hover:bg-muted/50'
+                          }`}
                       >
                         <input {...getInputProps()} />
                         <div className="flex flex-col items-center space-y-4">
@@ -445,9 +439,9 @@ export default function TrainingPage() {
                         <div className="mt-6 space-y-3">
                           <div className="flex items-center justify-between text-sm text-muted-foreground px-1">
                             <span>Uploaded Files ({uploadedFiles.length})</span>
-                            <Button 
-                              variant="ghost" 
-                              size="sm" 
+                            <Button
+                              variant="ghost"
+                              size="sm"
                               className="h-auto p-0 text-destructive hover:text-destructive"
                               onClick={() => setUploadedFiles([])}
                             >
@@ -544,19 +538,17 @@ export default function TrainingPage() {
                               {serverAnnotationFiles.map((file) => {
                                 const checked = selectedServerAnnotations.includes(file.filename)
                                 return (
-                                  <div 
-                                    key={file.filename} 
-                                    className={`flex items-center justify-between p-3 rounded-lg border transition-all cursor-pointer ${
-                                      checked 
-                                        ? 'bg-primary/5 border-primary/50' 
-                                        : 'bg-card border-transparent hover:bg-muted/50'
-                                    }`}
+                                  <div
+                                    key={file.filename}
+                                    className={`flex items-center justify-between p-3 rounded-lg border transition-all cursor-pointer ${checked
+                                      ? 'bg-primary/5 border-primary/50'
+                                      : 'bg-card border-transparent hover:bg-muted/50'
+                                      }`}
                                     onClick={() => toggleSelectServerAnnotation(file.filename, !checked)}
                                   >
                                     <div className="flex items-center space-x-3 overflow-hidden">
-                                      <div className={`flex h-5 w-5 items-center justify-center rounded border ${
-                                        checked ? 'bg-primary border-primary text-primary-foreground' : 'border-muted-foreground'
-                                      }`}>
+                                      <div className={`flex h-5 w-5 items-center justify-center rounded border ${checked ? 'bg-primary border-primary text-primary-foreground' : 'border-muted-foreground'
+                                        }`}>
                                         {checked && <CheckCircle className="h-3.5 w-3.5" />}
                                       </div>
                                       <div className="min-w-0">
@@ -607,7 +599,7 @@ export default function TrainingPage() {
                       <Label htmlFor="model-type">Architecture</Label>
                       <Select
                         value={trainingConfig.modelType}
-                        onValueChange={(value) => 
+                        onValueChange={(value) =>
                           setTrainingConfig(prev => ({ ...prev, modelType: value }))
                         }
                       >
@@ -615,10 +607,7 @@ export default function TrainingPage() {
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="segmentation">Segmentation (Default)</SelectItem>
                           <SelectItem value="yolo-v8">YOLO v8</SelectItem>
-                          <SelectItem value="mask-rcnn">Mask R-CNN</SelectItem>
-                          <SelectItem value="sam2">SAM2</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
@@ -650,7 +639,7 @@ export default function TrainingPage() {
                         <span className="text-sm text-muted-foreground font-mono">{trainingConfig.batchSize}</span>
                       </div>
                       <div className="grid grid-cols-5 gap-2">
-                        {[4, 8, 16, 32, 64].map((size) => (
+                        {[8, 16, 32, 48, 64].map((size) => (
                           <Button
                             key={size}
                             variant={trainingConfig.batchSize === size ? "default" : "outline"}
@@ -662,6 +651,7 @@ export default function TrainingPage() {
                           </Button>
                         ))}
                       </div>
+                      <p className="text-xs text-muted-foreground">RTX 3090 24GB: 32-64 recommended</p>
                     </div>
 
                     <div className="grid grid-cols-2 gap-4">
@@ -671,10 +661,10 @@ export default function TrainingPage() {
                           id="learning-rate"
                           type="number"
                           value={trainingConfig.learningRate}
-                          onChange={(e) => 
-                            setTrainingConfig(prev => ({ 
-                              ...prev, 
-                              learningRate: parseFloat(e.target.value) || 0.001 
+                          onChange={(e) =>
+                            setTrainingConfig(prev => ({
+                              ...prev,
+                              learningRate: parseFloat(e.target.value) || 0.001
                             }))
                           }
                           step={0.0001}
@@ -684,15 +674,20 @@ export default function TrainingPage() {
                       </div>
                       <div className="space-y-2">
                         <Label htmlFor="img-size">Image Size</Label>
-                        <Input
-                          id="img-size"
-                          type="number"
-                          value={imgSize}
-                          onChange={(e) => setImgSize(parseInt(e.target.value) || 640)}
-                          step={32}
-                          min={64}
-                          max={2048}
-                        />
+                        <Select
+                          value={imgSize.toString()}
+                          onValueChange={(value) => setImgSize(parseInt(value))}
+                        >
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="416">416 (Fast)</SelectItem>
+                            <SelectItem value="640">640 (Default)</SelectItem>
+                            <SelectItem value="960">960 (High)</SelectItem>
+                            <SelectItem value="1280">1280 (Ultra)</SelectItem>
+                          </SelectContent>
+                        </Select>
                       </div>
                     </div>
                   </div>
@@ -707,7 +702,7 @@ export default function TrainingPage() {
                     <Play className="mr-2 h-5 w-5" />
                     Start Training
                   </Button>
-                  
+
                   {uploadedFiles.length === 0 && selectedServerAnnotations.length === 0 && (
                     <div className="flex items-start gap-2 text-sm text-muted-foreground bg-muted/50 p-3 rounded-md">
                       <Info className="h-4 w-4 mt-0.5 shrink-0" />

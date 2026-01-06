@@ -7,9 +7,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Progress } from "@/components/ui/progress"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
-import { Brain, ArrowLeft, Activity, FileText, Timer, Home, RefreshCw, Trash2, BarChart3 } from "lucide-react"
+import { Brain, ArrowLeft, Activity, FileText, Timer, Home, RefreshCw, Trash2, BarChart3, ChevronDown } from "lucide-react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { apiCall, API_CONFIG } from "@/lib/api-config"
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 
 interface TrainingData {
   files: Array<{ id: string; name: string; size: number }>
@@ -81,6 +82,8 @@ export default function TrainingMonitorPage() {
   const [evaluation, setEvaluation] = useState<ModelEvaluation | null>(null)
   const [isEvaluationLoading, setIsEvaluationLoading] = useState(false)
   const [evaluationError, setEvaluationError] = useState<string | null>(null)
+  const [isDatasetFilesOpen, setIsDatasetFilesOpen] = useState(false)
+  const [isTrainingFilesOpen, setIsTrainingFilesOpen] = useState(false)
 
   // Load stored training data and job id
   useEffect(() => {
@@ -193,17 +196,20 @@ export default function TrainingMonitorPage() {
 
   const startedAt = useMemo(() => (data?.startTime ? new Date(data.startTime) : status?.created_at ? new Date(status.created_at) : null), [data?.startTime, status?.created_at])
 
+  const annotationFilenames = useMemo(() => {
+    return data?.annotationFilenames || status?.annotation_filenames || []
+  }, [data?.annotationFilenames, status?.annotation_filenames])
+
+  const annotationFileCount = useMemo(() => {
+    return annotationFilenames.length || (data?.annotationFilename ? 1 : 0) || (status?.annotation_filename ? 1 : 0)
+  }, [annotationFilenames, data?.annotationFilename, status?.annotation_filename])
+
   const annotationSummary = useMemo(() => {
-    const fromData = data?.annotationFilenames?.length
-      ? data.annotationFilenames.join(', ')
-      : data?.annotationFilename
-
-    const fromStatus = status?.annotation_filenames?.length
-      ? status.annotation_filenames.join(', ')
-      : status?.annotation_filename
-
-    return fromData || fromStatus || "Local/Test session"
-  }, [data?.annotationFilenames, data?.annotationFilename, status?.annotation_filenames, status?.annotation_filename])
+    if (annotationFileCount > 0) {
+      return `${annotationFileCount}개 파일`
+    }
+    return "Local/Test session"
+  }, [annotationFileCount])
 
   const fetchEvaluation = useCallback(async () => {
     if (!jobId) return
@@ -299,7 +305,25 @@ export default function TrainingMonitorPage() {
                 <FileText className="mr-2 h-5 w-5" />
                 Dataset & Config
               </CardTitle>
-              <CardDescription>{annotationSummary}</CardDescription>
+              <CardDescription>
+                {annotationFileCount > 0 ? (
+                  <Collapsible open={isDatasetFilesOpen} onOpenChange={setIsDatasetFilesOpen}>
+                    <CollapsibleTrigger className="flex items-center gap-1 hover:text-foreground transition-colors">
+                      <span>{annotationSummary}</span>
+                      <ChevronDown className={`h-4 w-4 transition-transform duration-200 ${isDatasetFilesOpen ? 'rotate-180' : ''}`} />
+                    </CollapsibleTrigger>
+                    <CollapsibleContent>
+                      <div className="mt-2 max-h-32 overflow-y-auto text-xs text-muted-foreground bg-muted/50 rounded p-2">
+                        {annotationFilenames.length > 0 
+                          ? annotationFilenames.join(', ')
+                          : data?.annotationFilename || status?.annotation_filename || '-'}
+                      </div>
+                    </CollapsibleContent>
+                  </Collapsible>
+                ) : (
+                  annotationSummary
+                )}
+              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="text-sm">
@@ -405,10 +429,18 @@ export default function TrainingMonitorPage() {
                       <div className="space-y-2">
                         <h4 className="font-semibold text-base">학습 정보</h4>
                         {evaluation.training_info.annotation_files && evaluation.training_info.annotation_files.length > 0 && (
-                          <div>
-                            <span className="text-xs text-muted-foreground">Annotation files</span>
-                            <div className="text-sm">{evaluation.training_info.annotation_files.join(', ')}</div>
-                          </div>
+                          <Collapsible open={isTrainingFilesOpen} onOpenChange={setIsTrainingFilesOpen}>
+                            <CollapsibleTrigger className="flex items-center gap-1 hover:text-foreground transition-colors">
+                              <span className="text-xs text-muted-foreground">Annotation files</span>
+                              <Badge variant="secondary" className="ml-1">{evaluation.training_info.annotation_files.length}개</Badge>
+                              <ChevronDown className={`h-3 w-3 transition-transform duration-200 ${isTrainingFilesOpen ? 'rotate-180' : ''}`} />
+                            </CollapsibleTrigger>
+                            <CollapsibleContent>
+                              <div className="mt-1 max-h-32 overflow-y-auto text-xs text-muted-foreground bg-muted/50 rounded p-2">
+                                {evaluation.training_info.annotation_files.join(', ')}
+                              </div>
+                            </CollapsibleContent>
+                          </Collapsible>
                         )}
                         <div className="grid grid-cols-2 gap-2 text-xs">
                           <div className="p-2 border rounded">Epochs: <strong>{evaluation.training_info.training_parameters?.epochs ?? '-'}</strong></div>
@@ -473,9 +505,9 @@ export default function TrainingMonitorPage() {
                     <div className="text-sm truncate pr-2">
                       <div className="font-medium">{j.model_name || j.job_id}</div>
                       <div className="text-xs text-muted-foreground">
-                        {(Array.isArray(j.annotation_filenames) && j.annotation_filenames.length
-                          ? j.annotation_filenames.join(', ')
-                          : j.annotation_filename) || '-'}
+                        {Array.isArray(j.annotation_filenames) && j.annotation_filenames.length
+                          ? `${j.annotation_filenames.length}개 파일`
+                          : j.annotation_filename || '-'}
                         {' '}• {j.status} • {j.progress}%
                       </div>
                     </div>

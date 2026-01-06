@@ -17,9 +17,9 @@ const manrope = Manrope({
 })
 
 export const metadata: Metadata = {
-  title: "KETIlabel - AI-Powered Image Labeling Tool",
-  description: "Professional image annotation and labeling tool powered by SAM2 AI technology",
-    generator: 'v0.app'
+  title: "HILIPS",
+  description: "HILIPS Data Annotation Platform",
+  generator: 'v0.app'
 }
 
 export default function RootLayout({

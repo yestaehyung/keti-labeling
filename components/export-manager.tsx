@@ -85,7 +85,7 @@ export default function ExportManager({ images, annotations, onExport, onDeleteA
     {
       id: "custom",
       name: "Custom JSON",
-      description: "KETIlabel native format",
+      description: "HILIPS native format",
       extension: ".json",
       icon: <Settings className="h-4 w-4" />,
     },
@@ -110,10 +110,10 @@ export default function ExportManager({ images, annotations, onExport, onDeleteA
   const generateCocoFormat = (selectedImages: string[], annotations: Record<string, any[]>) => {
     const cocoData = {
       info: {
-        description: "KETIlabel Export",
+        description: "HILIPS Export",
         version: "1.0",
         year: new Date().getFullYear(),
-        contributor: "KETIlabel",
+        contributor: "HILIPS",
         date_created: new Date().toISOString(),
       },
       licenses: [
@@ -285,23 +285,23 @@ export default function ExportManager({ images, annotations, onExport, onDeleteA
         case "custom":
         default:
           exportData = {
-            format: "KETIlabel",
+            format: "HILIPS",
             version: "1.0",
             exported_at: new Date().toISOString(),
             images: selectedImages,
             annotations: Object.fromEntries(selectedImages.map((img) => [img, annotations[img] || []])),
             metadata: includeMetadata
               ? {
-                  total_images: selectedImages.length,
-                  total_annotations: selectedImages.reduce((sum, img) => sum + (annotations[img]?.length || 0), 0),
-                  export_options: {
-                    include_images: includeImages,
-                    include_metadata: includeMetadata,
-                  },
-                }
+                total_images: selectedImages.length,
+                total_annotations: selectedImages.reduce((sum, img) => sum + (annotations[img]?.length || 0), 0),
+                export_options: {
+                  include_images: includeImages,
+                  include_metadata: includeMetadata,
+                },
+              }
               : undefined,
           }
-          filename = `ketilabel_export_${Date.now()}.json`
+          filename = `hilips_export_${Date.now()}.json`
       }
 
       // Create and download file
@@ -438,9 +438,8 @@ export default function ExportManager({ images, annotations, onExport, onDeleteA
               return (
                 <div
                   key={image}
-                  className={`flex items-center space-x-3 p-2 rounded-lg border transition-colors ${
-                    isSelected ? "bg-primary/5 border-primary" : "bg-muted/50"
-                  }`}
+                  className={`flex items-center space-x-3 p-2 rounded-lg border transition-colors ${isSelected ? "bg-primary/5 border-primary" : "bg-muted/50"
+                    }`}
                 >
                   <Checkbox
                     id={`image-${image}`}

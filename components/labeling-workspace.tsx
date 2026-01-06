@@ -10,7 +10,8 @@ import { Textarea } from "@/components/ui/textarea"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { ArrowLeft, Moon, Sun, Zap, Target, Trash2, FileText, Play, Square, RotateCcw, Brain, PanelLeft, PanelRight, ZoomIn, ZoomOut, Hand, MousePointer2, Maximize, Minimize, Sparkles, Layers, Loader2, ChevronLeft, ChevronRight, CheckCircle } from "lucide-react"
+import { ArrowLeft, Moon, Sun, Zap, Target, Trash2, FileText, Play, Square, RotateCcw, Brain, PanelLeft, PanelRight, ZoomIn, ZoomOut, Hand, MousePointer2, Maximize, Minimize, Sparkles, Layers, Loader2, ChevronLeft, ChevronRight, CheckCircle, Bot } from "lucide-react"
+import { Slider } from "@/components/ui/slider"
 import AdvancedPolygonVisualization from "./advanced-polygon-visualization"
 import ClassManager, { type ClassDefinition } from "./class-manager"
 import { useToast } from "@/hooks/use-toast"
@@ -73,6 +74,12 @@ export default function LabelingWorkspace({
 
   const [selectedClassId, setSelectedClassId] = useState<string | null>(null)
   const [selectedPolygonId, setSelectedPolygonId] = useState<string | null>(null)
+
+  const [availableModels, setAvailableModels] = useState<Array<{ model_id: string; model_name?: string; metrics?: any }>>([])
+  const [selectedModelId, setSelectedModelId] = useState<string | null>(null)
+  const [modelConfidence, setModelConfidence] = useState(0.5)
+  const [isLoadingModels, setIsLoadingModels] = useState(false)
+  const [isModelInferencing, setIsModelInferencing] = useState(false)
 
   // Immersive Mode State
   const [zoom, setZoom] = useState(1)
@@ -154,38 +161,242 @@ export default function LabelingWorkspace({
   // Track previous image to prevent unnecessary resets
   const prevImageRef = useRef<string | null>(null)
 
-  // Reset state when selectedImage changes
+  // Reset state when selectedImage changes or annotations update
   useEffect(() => {
-    // Only reset if the image has actually changed
-    if (selectedImage === prevImageRef.current) {
+    // Check if image actually changed
+    const imageChanged = selectedImage !== prevImageRef.current
+
+    if (imageChanged) {
+      console.log("🔄 Image changed, resetting workspace state for:", selectedImage)
+      prevImageRef.current = selectedImage
+
+      // Reset complete state for new image
+      setProcessingStatus(null)
+      setRawServerLog(null)
+      setShowRawLog(false)
+      setSelectedPoints([])
+      setPointProcessing({})
+      setPointsMode(false)
+      setSelectedPolygonId(null)
+      setClickProcessing(false)
+      setProcessingContext(null)
+      setGeminiPrompt("")
+      setIsSavingAnnotations(false)
+
+      // Load initial annotations
+      setPolygonData(initialAnnotations ? JSON.parse(JSON.stringify(initialAnnotations)) : [])
+    } else {
+      // Image is the same, but initialAnnotations might have updated (e.g. late server load)
+      if (initialAnnotations) {
+        setPolygonData((prev) => {
+          // Only update if we don't have data yet, OR if we want to force sync
+          // For now, let's assume if initialAnnotations updates, we should sync it
+          // to ensure server data appears.
+          return JSON.parse(JSON.stringify(initialAnnotations))
+        })
+      }
+    }
+  }, [selectedImage, initialAnnotations])
+
+  const fetchAvailableModels = async () => {
+    setIsLoadingModels(true)
+    try {
+      const response = await apiCall(API_CONFIG.ENDPOINTS.MODELS_WEIGHTS)
+      if (response.ok) {
+        const data = await response.json()
+        const models = data.models || []
+        
+        const uniqueModels = models.filter((model: { model_id: string }, index: number, self: Array<{ model_id: string }>) => 
+          index === self.findIndex(m => m.model_id === model.model_id)
+        )
+        
+        const sortedModels = [...uniqueModels].sort((a, b) => {
+          const aScore = a.metrics?.map50 || a.metrics?.map50_95 || 0
+          const bScore = b.metrics?.map50 || b.metrics?.map50_95 || 0
+          return bScore - aScore
+        })
+        
+        setAvailableModels(sortedModels)
+        
+        if (sortedModels.length > 0 && !selectedModelId) {
+          setSelectedModelId(sortedModels[0].model_id)
+        }
+      }
+    } catch (error) {
+      console.error("Failed to fetch models:", error)
+    } finally {
+      setIsLoadingModels(false)
+    }
+  }
+
+  useEffect(() => {
+    if (processingContext === 'hilips') {
+      fetchAvailableModels()
+    }
+  }, [processingContext])
+
+  const handleModelInference = async () => {
+    if (!selectedModelId) {
+      toast({
+        variant: "destructive",
+        title: "No model selected",
+        description: "Please select a trained model first.",
+      })
       return
     }
 
-    console.log("🔄 Image changed, resetting workspace state for:", selectedImage)
-    prevImageRef.current = selectedImage
+    setIsModelInferencing(true)
+    setProcessingStatus("processing")
+    setProcessingContext("hilips")
 
-    // Reset polygons to initial annotations for the new image
-    // Deep copy to avoid reference issues
-    setPolygonData(initialAnnotations ? JSON.parse(JSON.stringify(initialAnnotations)) : [])
+    toast({
+      title: "Model Inference Started",
+      description: `Running ${selectedModelId} on this image...`,
+    })
 
-    // Reset other state
-    setProcessingStatus(null)
-    setRawServerLog(null)
-    setShowRawLog(false)
-    setSelectedPoints([])
-    setPointProcessing({})
-    setPointsMode(false)
-    setSelectedPolygonId(null)
-    setClickProcessing(false)
-    setProcessingContext(null)
-    setGeminiPrompt("")
-    setIsSavingAnnotations(false)
+    try {
+      const response = await apiCall(
+        `${API_CONFIG.ENDPOINTS.MODEL_INFERENCE}/${selectedModelId}/inference`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model_id: selectedModelId,
+            image_path: selectedImage,
+            confidence: modelConfidence,
+            save_labels: false,
+          }),
+        }
+      )
 
-  }, [selectedImage, initialAnnotations])
+      let responseData: any
+      try {
+        responseData = await response.json()
+      } catch (parseError) {
+        throw new Error(`Failed to parse response: ${response.status} ${response.statusText}`)
+      }
 
-  // Handle image load to get actual dimensions
-  const handleImageLoad = () => {
-    if (imageRef.current) {
+      if (!response.ok) {
+        let errorDetail = `Server error: ${response.status}`
+        if (responseData) {
+          if (typeof responseData.detail === 'string') {
+            errorDetail = responseData.detail
+          } else if (responseData.detail?.msg) {
+            errorDetail = responseData.detail.msg
+          } else if (responseData.message) {
+            errorDetail = responseData.message
+          } else if (responseData.detail) {
+            errorDetail = JSON.stringify(responseData.detail)
+          }
+        }
+        throw new Error(errorDetail)
+      }
+
+      const inferenceData = responseData.inference_data
+      if (!inferenceData || !inferenceData.polygons) {
+        toast({
+          title: "No detections",
+          description: "Model did not detect any objects in this image.",
+        })
+        setProcessingStatus("completed")
+        return
+      }
+
+      const backendWidth = inferenceData.image?.width || imageSize.width
+      const backendHeight = inferenceData.image?.height || imageSize.height
+
+      if (backendWidth !== imageSize.width || backendHeight !== imageSize.height) {
+        setImageSize({ width: backendWidth, height: backendHeight })
+      }
+
+      const convertedPolygons = inferenceData.polygons
+        .map((detection: any, index: number) => {
+          const points = detection.points || []
+          
+          if (points.length < 4) {
+            return null
+          }
+          
+          const xs: number[] = []
+          const ys: number[] = []
+          for (let i = 0; i < points.length; i += 2) {
+            xs.push(points[i])
+            ys.push(points[i + 1])
+          }
+          
+          if (xs.length === 0 || ys.length === 0) {
+            return null
+          }
+          
+          const minX = Math.min(...xs)
+          const minY = Math.min(...ys)
+          const maxX = Math.max(...xs)
+          const maxY = Math.max(...ys)
+          const bbox = [minX, minY, maxX - minX, maxY - minY]
+
+          let area = 0
+          for (let i = 0; i < xs.length; i++) {
+            const j = (i + 1) % xs.length
+            area += xs[i] * ys[j] - xs[j] * ys[i]
+          }
+          area = Math.abs(area / 2)
+
+          const matchingClass = classes.find(
+            cls => cls.name.toLowerCase() === detection.label?.toLowerCase()
+          )
+
+          return {
+            id: createPolygonId("yolo"),
+            segmentation: points,
+            area: area,
+            bbox: bbox,
+            predicted_iou: detection.confidence || 0,
+            stability_score: detection.confidence || 0,
+            confidence: detection.confidence || 0,
+            point_coords: [],
+            crop_box: [0, 0, backendWidth, backendHeight],
+            label: detection.label || `Detection ${index + 1}`,
+            source: "yolo",
+            classId: matchingClass?.id,
+            className: matchingClass?.name,
+            classColor: matchingClass?.color,
+            color: matchingClass?.color,
+            metadata: {
+              model_id: selectedModelId,
+              detection_id: detection.detection_id,
+            },
+          }
+        })
+        .filter(Boolean)
+
+      setPolygonData(prev => prev ? [...prev, ...convertedPolygons] : convertedPolygons)
+      setProcessingStatus("completed")
+
+      const highConfCount = convertedPolygons.filter((p: any) => p.confidence >= 0.8).length
+      const lowConfCount = convertedPolygons.length - highConfCount
+
+      toast({
+        title: "Model Inference Complete",
+        description: `Detected ${convertedPolygons.length} objects (${highConfCount} high conf, ${lowConfCount} needs review)`,
+      })
+    } catch (error: any) {
+      console.error("Model inference error:", error)
+      setProcessingStatus("error")
+      const errorMessage = error?.message || error?.detail || (typeof error === 'string' ? error : 'Unknown error occurred')
+      toast({
+        variant: "destructive",
+        title: "Model Inference Failed",
+        description: errorMessage,
+      })
+    } finally {
+      setIsModelInferencing(false)
+    }
+  }
+
+  const handleImageLoad = (naturalWidth?: number, naturalHeight?: number) => {
+    if (naturalWidth && naturalHeight) {
+      setImageSize({ width: naturalWidth, height: naturalHeight })
+    } else if (imageRef.current) {
       setImageSize({
         width: imageRef.current.naturalWidth,
         height: imageRef.current.naturalHeight,
@@ -877,7 +1088,9 @@ export default function LabelingWorkspace({
           ? "Processing with Gemini..."
           : processingContext === "point"
             ? "Processing selected points..."
-            : "Processing with SAM v2..."
+            : processingContext === "hilips"
+              ? "Running YOLO inference..."
+              : "Processing with SAM v2..."
         return (
           <Badge variant="secondary" className="animate-pulse">
             <div className="mr-2 h-2 w-2 rounded-full bg-yellow-500" />
@@ -911,12 +1124,16 @@ export default function LabelingWorkspace({
     ? "Creating polygon from point"
     : activeProcessingContext === "gemini"
       ? "Processing with Gemini"
-      : "Processing with SAM v2"
+      : activeProcessingContext === "hilips"
+        ? "Running YOLO Model"
+        : "Processing with SAM v2"
   const visualizationProcessingDescription = activeProcessingContext === "point"
     ? "AI is creating polygon from your clicked point..."
     : activeProcessingContext === "gemini"
       ? "Gemini is applying your prompt to segment the image..."
-      : "AI is analyzing your image to detect objects..."
+      : activeProcessingContext === "hilips"
+        ? "Trained YOLO model is detecting objects..."
+        : "AI is analyzing your image to detect objects..."
   const isGeminiProcessing = processingContext === "gemini" && isProcessing
   const isGeminiDisabled = isProcessing || clickProcessing || geminiPrompt.trim().length === 0
   const resolvedSelectedPolygon = useMemo(() => {
@@ -1227,11 +1444,11 @@ export default function LabelingWorkspace({
                 >
                   <CardContent className="p-3 flex flex-col items-center text-center space-y-2">
                     <div className="p-2 rounded-full bg-primary/10 text-primary">
-                      <Sparkles className="h-4 w-4" />
+                      <Bot className="h-4 w-4" />
                     </div>
                     <div>
-                      <div className="font-medium text-xs">HILIPS</div>
-                      <div className="text-[10px] text-muted-foreground">Automated labeling</div>
+                      <div className="font-medium text-xs">YOLO Model</div>
+                      <div className="text-[10px] text-muted-foreground">Auto-label</div>
                     </div>
                   </CardContent>
                 </Card>
@@ -1384,6 +1601,113 @@ export default function LabelingWorkspace({
                   </div>
                 </div>
               )}
+
+              {processingContext === 'hilips' && (
+                <div className="space-y-3 animate-in fade-in slide-in-from-top-2">
+                  <div className="space-y-2">
+                    <Label className="text-xs">Select Trained Model</Label>
+                    {isLoadingModels ? (
+                      <div className="flex items-center justify-center py-2">
+                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                        <span className="text-xs text-muted-foreground">Loading models...</span>
+                      </div>
+                    ) : availableModels.length === 0 ? (
+                      <div className="text-xs text-muted-foreground bg-muted/30 p-2 rounded border border-dashed">
+                        No trained models available. Train a model first in the Training page.
+                      </div>
+                    ) : (
+                      <Select
+                        value={selectedModelId || ""}
+                        onValueChange={setSelectedModelId}
+                      >
+                        <SelectTrigger className="h-8 text-xs">
+                          {selectedModelId ? (
+                            <div className="flex items-center gap-2">
+                              <span>{selectedModelId}</span>
+                              {availableModels.findIndex(m => m.model_id === selectedModelId) === 0 && (
+                                <Badge className="bg-green-500 text-white text-[9px] px-1 py-0">
+                                  Best
+                                </Badge>
+                              )}
+                              {availableModels.find(m => m.model_id === selectedModelId)?.metrics?.map50 && (
+                                <Badge variant="outline" className="text-[10px]">
+                                  {(availableModels.find(m => m.model_id === selectedModelId)!.metrics!.map50 * 100).toFixed(1)}%
+                                </Badge>
+                              )}
+                            </div>
+                          ) : (
+                            <SelectValue placeholder="Select a model" />
+                          )}
+                        </SelectTrigger>
+                        <SelectContent>
+                          {availableModels.map((model, idx) => (
+                            <SelectItem key={model.model_id} value={model.model_id} className="py-2">
+                              <div className="flex items-center gap-2">
+                                <span>{model.model_id}</span>
+                                {idx === 0 && (
+                                  <Badge className="bg-green-500 text-white text-[9px] px-1 py-0">
+                                    Best
+                                  </Badge>
+                                )}
+                                {model.metrics?.map50 && (
+                                  <Badge variant="outline" className="text-[10px]">
+                                    {(model.metrics.map50 * 100).toFixed(1)}%
+                                  </Badge>
+                                )}
+                              </div>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <Label className="text-xs">Confidence Threshold</Label>
+                      <span className="text-xs font-mono text-muted-foreground">{(modelConfidence * 100).toFixed(0)}%</span>
+                    </div>
+                    <Slider
+                      value={[modelConfidence]}
+                      onValueChange={([val]) => setModelConfidence(val)}
+                      min={0.1}
+                      max={0.95}
+                      step={0.05}
+                      className="w-full"
+                    />
+                    <div className="flex justify-between text-[10px] text-muted-foreground">
+                      <span>More detections</span>
+                      <span>Higher precision</span>
+                    </div>
+                  </div>
+
+                  <Button
+                    size="sm"
+                    onClick={handleModelInference}
+                    disabled={!selectedModelId || isModelInferencing || isProcessing}
+                    className="w-full h-8 gap-2"
+                  >
+                    {isModelInferencing ? (
+                      <>
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                        Running Inference...
+                      </>
+                    ) : (
+                      <>
+                        <Bot className="h-3 w-3" />
+                        Auto-Label with Model
+                      </>
+                    )}
+                  </Button>
+
+                  {selectedModelId && (
+                    <div className="text-[10px] text-muted-foreground bg-muted/20 p-2 rounded">
+                      <strong>Tip:</strong> Objects with confidence ≥80% will be auto-labeled. 
+                      Lower confidence detections can be reviewed and corrected.
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             <div className="h-px bg-border" />
@@ -1488,13 +1812,15 @@ export default function LabelingWorkspace({
                   polygonData.map((polygon, index) => {
                     const polygonKey = getPolygonKey(polygon, index)
                     const isSelected = selectedPolygonId === polygonKey
+                    const confidence = polygon.confidence || polygon.stability_score || 0
+                    const needsReview = polygon.source === 'yolo' && confidence < 0.8 && !polygon.classId
 
                     return (
                       <div
                         key={polygonKey}
                         className={`
                           flex items-center justify-between p-2 rounded-md border text-xs cursor-pointer transition-colors
-                          ${isSelected ? 'bg-primary/10 border-primary' : 'bg-card hover:bg-accent/50'}
+                          ${isSelected ? 'bg-primary/10 border-primary' : needsReview ? 'bg-amber-50 border-amber-300 dark:bg-amber-950/30 dark:border-amber-700' : 'bg-card hover:bg-accent/50'}
                         `}
                         onClick={() => setSelectedPolygonId(polygonKey)}
                       >
@@ -1506,8 +1832,18 @@ export default function LabelingWorkspace({
                           <span className="truncate font-medium">
                             {polygon.label || `Polygon ${index + 1}`}
                           </span>
+                          {needsReview && (
+                            <Badge className="bg-amber-500 text-white text-[9px] px-1 py-0 flex-shrink-0">
+                              Review
+                            </Badge>
+                          )}
                         </div>
                         <div className="flex items-center space-x-1 flex-shrink-0">
+                          {polygon.source === 'yolo' && (
+                            <span className="text-[9px] text-muted-foreground">
+                              {(confidence * 100).toFixed(0)}%
+                            </span>
+                          )}
                           {polygon.className && (
                             <Badge variant="outline" className="text-[10px] h-5 px-1 flex-shrink-0">
                               {polygon.className}
@@ -1547,15 +1883,21 @@ export default function LabelingWorkspace({
             {/* Results Summary */}
             <div className="space-y-4">
               <h3 className="font-semibold text-sm">Summary</h3>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-3 gap-2">
                 <div className="bg-muted/30 p-2 rounded-md text-center">
                   <div className="text-xs text-muted-foreground">Total</div>
                   <div className="text-lg font-bold">{polygonData ? polygonData.length : 0}</div>
                 </div>
-                <div className="bg-muted/30 p-2 rounded-md text-center">
+                <div className="bg-green-100 dark:bg-green-950/30 p-2 rounded-md text-center">
                   <div className="text-xs text-muted-foreground">Labeled</div>
-                  <div className="text-lg font-bold text-primary">
+                  <div className="text-lg font-bold text-green-600">
                     {polygonData ? polygonData.filter(p => p.classId).length : 0}
+                  </div>
+                </div>
+                <div className="bg-amber-100 dark:bg-amber-950/30 p-2 rounded-md text-center">
+                  <div className="text-xs text-muted-foreground">Review</div>
+                  <div className="text-lg font-bold text-amber-600">
+                    {polygonData ? polygonData.filter(p => p.source === 'yolo' && (p.confidence || p.stability_score || 0) < 0.8 && !p.classId).length : 0}
                   </div>
                 </div>
               </div>

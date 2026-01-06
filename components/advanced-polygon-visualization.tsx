@@ -43,7 +43,7 @@ interface AdvancedPolygonVisualizationProps {
   isProcessing?: boolean
   processingMessage?: string
   processingDescription?: string
-  onImageLoad?: () => void
+  onImageLoad?: (naturalWidth: number, naturalHeight: number) => void
   onPointClick?: (x: number, y: number) => void
   onPolygonSelect?: (polygon: PolygonData) => void
   onPolygonUpdate?: (polygons: PolygonData[]) => void
@@ -296,16 +296,35 @@ export default function AdvancedPolygonVisualization({
     const img = new Image()
     img.crossOrigin = "anonymous"
     img.onload = () => {
-      // Call onImageLoad callback if provided
-      onImageLoad?.()
+      onImageLoad?.(img.naturalWidth, img.naturalHeight)
 
       // Draw image
       ctx.drawImage(img, offsetX, offsetY, scaledImageWidth, scaledImageHeight)
 
       // Draw polygons
-      polygons.forEach((polygon) => {
+      console.log('🔍 DEBUG: Drawing polygons', {
+        polygonsCount: polygons.length,
+        segmentationVisible,
+        polygonDisplayMode
+      })
+      
+      polygons.forEach((polygon, idx) => {
         if (!ctx) return
-        if (!polygon.visible) return
+        
+        console.log(`🔍 DEBUG polygon[${idx}]:`, {
+          id: polygon.id,
+          visible: polygon.visible,
+          hasSegmentation: !!polygon.segmentation,
+          segmentationType: polygon.segmentation ? typeof polygon.segmentation : 'none',
+          segmentationLength: Array.isArray(polygon.segmentation) ? polygon.segmentation.length : 0,
+          bbox: polygon.bbox,
+          source: (polygon as any).source
+        })
+        
+        if (!polygon.visible) {
+          console.log(`🔍 DEBUG polygon[${idx}]: SKIPPED - not visible`)
+          return
+        }
 
         const isSelected = selectedPolygonId === polygon.id
         const color = polygon.color || "#0891b2"
@@ -332,8 +351,13 @@ export default function AdvancedPolygonVisualization({
           (polygonDisplayMode === 'all' ||
             (polygonDisplayMode === 'selected' && isSelected))
 
-        // Draw actual segmentation polygon from SAM v2
-        if (shouldShowSegmentation && polygon.segmentation) {
+        console.log(`🔍 DEBUG polygon[${idx}] shouldShowSegmentation:`, shouldShowSegmentation)
+
+        const hasValidSegmentation = polygon.segmentation && 
+          Array.isArray(polygon.segmentation) && 
+          polygon.segmentation.length > 0
+
+        if (shouldShowSegmentation && hasValidSegmentation) {
           console.log('=== SEGMENTATION RENDER START ===', {
             id: polygon.id,
             segmentation: polygon.segmentation,
@@ -373,12 +397,24 @@ export default function AdvancedPolygonVisualization({
               let hasValidPath = false
 
               if (typeof polygon.segmentation[0] === 'number') {
-                // Flat coordinate array [x1, y1, x2, y2, ...]
+                console.log('🎨 RENDER COORDS:', {
+                  rawSegmentation: polygon.segmentation.slice(0, 8),
+                  scale,
+                  offsetX,
+                  offsetY,
+                  imageWidth,
+                  imageHeight,
+                  canvasWidth: canvas.width,
+                  canvasHeight: canvas.height
+                })
                 for (let i = 0; i < polygon.segmentation.length; i += 2) {
                   if (i + 1 < polygon.segmentation.length) {
-                    const x = offsetX + (polygon.segmentation[i] as number) * scale
-                    const y = offsetY + (polygon.segmentation[i + 1] as number) * scale
+                    const rawX = polygon.segmentation[i] as number
+                    const rawY = polygon.segmentation[i + 1] as number
+                    const x = offsetX + rawX * scale
+                    const y = offsetY + rawY * scale
                     if (i === 0) {
+                      console.log(`🎨 First point: raw(${rawX}, ${rawY}) → canvas(${x.toFixed(1)}, ${y.toFixed(1)})`)
                       ctx.moveTo(x, y)
                     } else {
                       ctx.lineTo(x, y)
@@ -387,21 +423,37 @@ export default function AdvancedPolygonVisualization({
                   }
                 }
               } else if (Array.isArray(polygon.segmentation[0])) {
-                console.log('Drawing coordinate pairs:', polygon.segmentation)
-                  // Array of coordinate pairs [[x1, y1], [x2, y2], ...]
-                  ; (polygon.segmentation as any[]).forEach((point: any, i: number) => {
-                    if (Array.isArray(point) && point.length >= 2) {
-                      const x = offsetX + point[0] * scale
-                      const y = offsetY + point[1] * scale
-                      console.log(`Point ${i}: (${point[0]}, ${point[1]}) -> canvas (${x}, ${y})`)
-                      if (i === 0) {
-                        ctx.moveTo(x, y)
-                      } else {
-                        ctx.lineTo(x, y)
+                // Check if it is COCO format [[x1, y1, x2, y2, ...], ...]
+                if (typeof (polygon.segmentation[0] as any[])[0] === 'number') {
+                  // It is an array of arrays of numbers (COCO polygons)
+                  (polygon.segmentation as number[][]).forEach((ring) => {
+                    for (let i = 0; i < ring.length; i += 2) {
+                      if (i + 1 < ring.length) {
+                        const x = offsetX + ring[i] * scale
+                        const y = offsetY + ring[i + 1] * scale
+                        if (i === 0) ctx.moveTo(x, y)
+                        else ctx.lineTo(x, y)
+                        hasValidPath = true
                       }
-                      hasValidPath = true
                     }
+                    ctx.closePath()
                   })
+                } else {
+                  // Assume Array of coordinate pairs [[x1, y1], [x2, y2], ...]
+                  console.log('Drawing coordinate pairs:', polygon.segmentation)
+                    ; (polygon.segmentation as any[]).forEach((point: any, i: number) => {
+                      if (Array.isArray(point) && point.length >= 2) {
+                        const x = offsetX + point[0] * scale
+                        const y = offsetY + point[1] * scale
+                        if (i === 0) {
+                          ctx.moveTo(x, y)
+                        } else {
+                          ctx.lineTo(x, y)
+                        }
+                        hasValidPath = true
+                      }
+                    })
+                }
               }
 
               if (hasValidPath) {
