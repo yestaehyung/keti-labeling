@@ -423,9 +423,23 @@ export default function AdvancedPolygonVisualization({
                   }
                 }
               } else if (Array.isArray(polygon.segmentation[0])) {
-                // Check if it is COCO format [[x1, y1, x2, y2, ...], ...]
-                if (typeof (polygon.segmentation[0] as any[])[0] === 'number') {
-                  // It is an array of arrays of numbers (COCO polygons)
+                const firstElement = polygon.segmentation[0] as any[]
+                const isPointPairs = firstElement.length === 2 && typeof firstElement[0] === 'number' && typeof firstElement[1] === 'number'
+                
+                if (isPointPairs) {
+                  (polygon.segmentation as Array<[number, number]>).forEach((point, i) => {
+                    if (Array.isArray(point) && point.length >= 2) {
+                      const x = offsetX + point[0] * scale
+                      const y = offsetY + point[1] * scale
+                      if (i === 0) {
+                        ctx.moveTo(x, y)
+                      } else {
+                        ctx.lineTo(x, y)
+                      }
+                      hasValidPath = true
+                    }
+                  })
+                } else if (typeof firstElement[0] === 'number') {
                   (polygon.segmentation as number[][]).forEach((ring) => {
                     for (let i = 0; i < ring.length; i += 2) {
                       if (i + 1 < ring.length) {
@@ -438,21 +452,6 @@ export default function AdvancedPolygonVisualization({
                     }
                     ctx.closePath()
                   })
-                } else {
-                  // Assume Array of coordinate pairs [[x1, y1], [x2, y2], ...]
-                  console.log('Drawing coordinate pairs:', polygon.segmentation)
-                    ; (polygon.segmentation as any[]).forEach((point: any, i: number) => {
-                      if (Array.isArray(point) && point.length >= 2) {
-                        const x = offsetX + point[0] * scale
-                        const y = offsetY + point[1] * scale
-                        if (i === 0) {
-                          ctx.moveTo(x, y)
-                        } else {
-                          ctx.lineTo(x, y)
-                        }
-                        hasValidPath = true
-                      }
-                    })
                 }
               }
 

@@ -7,12 +7,18 @@ export interface WorkflowQueues {
   review_queue_size: number
   auto_label_queue_size: number
   reviewed_since_last_train: number
+  total_images: number
+  labeled_count: number
+  unlabeled_count: number
+  needs_review_count: number
 }
 
 export interface WorkflowTraining {
   active_job_id: string | null
   last_completed_job_id: string | null
   last_map70: number | null
+  train_count?: number
+  model_count?: number
 }
 
 export interface NextAction {

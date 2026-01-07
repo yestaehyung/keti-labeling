@@ -1,470 +1,339 @@
-"use client";
+"use client"
 
-import type React from "react";
-import { useEffect, useState, useCallback, useMemo } from "react";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { useToast } from "@/hooks/use-toast";
-import { apiCall, API_CONFIG } from "@/lib/api-config";
-import ImageGallery from "@/components/image-gallery";
-import ImageGalleryFilter, { type FilterType } from "@/components/image-gallery-filter";
-import LabelingWorkspace from "@/components/labeling-workspace";
-import MainHeader from "@/components/main-header";
-import BatchAutoLabelDialog from "@/components/batch-auto-label-dialog";
-import WorkflowSummaryCard from "@/components/workflow-summary-card";
-import { useWorkflowStatus } from "@/hooks/use-workflow-status";
-import { Bot, Brain } from "lucide-react";
+import { useState } from "react"
+import { Card, CardContent } from "@/components/ui/card"
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { 
+  CheckCircle, AlertTriangle, Clock, RefreshCw, Zap,
+  ArrowRight, Brain, RotateCcw, ImageIcon, Tags, Activity, Play
+} from "lucide-react"
+import Link from "next/link"
+import MainHeader from "@/components/main-header"
+import { useWorkflowStatus } from "@/hooks/use-workflow-status"
+
+const PHASES = [
+  { num: 1, name: "Cold-start", icon: Zap, route: "/gallery", color: "cyan" },
+  { num: 2, name: "Distillation", icon: Brain, route: "/training", color: "purple" },
+  { num: 3, name: "Refinement", icon: RotateCcw, route: "/gallery?filter=needs-review", color: "emerald" },
+] as const
 
 export default function Home() {
-  const [isDarkMode, setIsDarkMode] = useState(false);
-  const [selectedImage, setSelectedImage] = useState<string | null>(null);
-  const [images, setImages] = useState<string[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [uploadedClasses, setUploadedClasses] = useState<any[] | null>(null);
-  const [galleryPage, setGalleryPage] = useState(1);
-  const [searchTerm, setSearchTerm] = useState("");
-  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
-  const { toast } = useToast();
-  const [annotations, setAnnotations] = useState<Record<string, any[]>>({});
-  const [filterType, setFilterType] = useState<FilterType>("all");
-  const [needsReviewImages, setNeedsReviewImages] = useState<string[]>([]);
-  const [batchDialogOpen, setBatchDialogOpen] = useState(false);
-  
-  const { summary: workflowSummary, loading: workflowLoading } = useWorkflowStatus(15000);
+  const { summary, loading, error, refresh, setPhase, startIteration } = useWorkflowStatus(5000)
+  const [isStartingIteration, setIsStartingIteration] = useState(false)
 
-  useEffect(() => {
-    const savedDarkMode = localStorage.getItem("darkMode") === "true";
-    setIsDarkMode(savedDarkMode);
-    if (savedDarkMode) {
-      document.documentElement.classList.add("dark");
+  const handleStartNextIteration = async () => {
+    setIsStartingIteration(true)
+    const success = await startIteration(2)
+    setIsStartingIteration(false)
+    if (success) {
+      window.location.href = "/training"
     }
-  }, []);
-
-  useEffect(() => {
-    localStorage.setItem("darkMode", isDarkMode.toString());
-    if (isDarkMode) {
-      document.documentElement.classList.add("dark");
-    } else {
-      document.documentElement.classList.remove("dark");
-    }
-  }, [isDarkMode]);
-
-  useEffect(() => {
-    apiCall(API_CONFIG.ENDPOINTS.IMAGES)
-      .then((res) => {
-        if (!res.ok) throw new Error("Failed to load images");
-        return res.json();
-      })
-      .then((data) => {
-        setImages(data);
-        setLoading(false);
-      })
-      .catch((err) => {
-        setError(err.message);
-        setLoading(false);
-      });
-  }, []);
-
-  const convertCocoAnnotationsToPolygons = (annotations: any[], categories: any[] = []) => {
-    const categoryMap: Record<number, string> = {};
-    categories.forEach((cat: any) => {
-      categoryMap[cat.id] = cat.name;
-    });
-    
-    return annotations.map((ann: any, index: number) => {
-      let segmentation: number[] = [];
-      if (Array.isArray(ann.segmentation) && ann.segmentation.length > 0) {
-        segmentation = Array.isArray(ann.segmentation[0]) 
-          ? ann.segmentation[0] 
-          : ann.segmentation;
-      }
-      
-      return {
-        id: `polygon-${ann.id || index}`,
-        segmentation,
-        bbox: ann.bbox || [],
-        area: ann.area || 0,
-        predicted_iou: ann.predicted_iou,
-        stability_score: ann.stability_score,
-        label: categoryMap[ann.category_id] || `Object ${index + 1}`,
-        visible: true,
-      };
-    });
-  };
-
-  const normalizePolygonData = (polygon: any, index: number): any => {
-    const points = polygon.points || polygon.segmentation || [];
-    
-    let bbox = polygon.bbox;
-    if ((!bbox || bbox.length === 0) && points.length >= 4) {
-      const xs: number[] = [];
-      const ys: number[] = [];
-      for (let i = 0; i < points.length; i += 2) {
-        xs.push(points[i]);
-        ys.push(points[i + 1]);
-      }
-      const minX = Math.min(...xs);
-      const minY = Math.min(...ys);
-      const maxX = Math.max(...xs);
-      const maxY = Math.max(...ys);
-      bbox = [minX, minY, maxX - minX, maxY - minY];
-    }
-
-    return {
-      ...polygon,
-      id: polygon.id || `polygon-${index}`,
-      segmentation: points,
-      bbox: bbox || [],
-      visible: polygon.visible !== undefined ? polygon.visible : true,
-    };
-  };
-
-  const extractPolygonsFromPayload = (payload: any): any[] => {
-    if (Array.isArray(payload?.polygons)) {
-      return payload.polygons.map((p: any, i: number) => normalizePolygonData(p, i));
-    }
-    if (Array.isArray(payload?.data?.polygons)) {
-      return payload.data.polygons.map((p: any, i: number) => normalizePolygonData(p, i));
-    }
-    
-    if (Array.isArray(payload?.annotations)) {
-      return convertCocoAnnotationsToPolygons(payload.annotations, payload.categories);
-    }
-    
-    return [];
-  };
-
-  const resolveImageNameFromPayload = (payload: any, filename: string, imageList: string[]) => {
-    const raw =
-      payload?.image?.url ||
-      payload?.image?.file_name ||
-      payload?.image?.filename ||
-      payload?.image?.name ||
-      "";
-
-    if (typeof raw === "string" && raw.trim().length > 0) {
-      const parts = raw.trim().split("/");
-      const fromPath = parts[parts.length - 1];
-      if (fromPath) return fromPath;
-    }
-
-    if (filename.endsWith("_coco.json")) {
-      const base = filename.replace(/_coco\.json$/i, "");
-      const matched = imageList.find(
-        (img) => img.replace(/\.[^/.]+$/, "") === base
-      );
-      if (matched) return matched;
-      return `${base}.jpg`;
-    }
-
-    return filename;
-  };
-
-  const syncAnnotationsFromServer = useCallback(async () => {
-    try {
-      const response = await apiCall(API_CONFIG.ENDPOINTS.ANNOTATIONS);
-      if (!response.ok) {
-        throw new Error(`Failed to load annotations: ${response.status}`);
-      }
-      const payload = await response.json().catch(() => null);
-
-      let filenames: string[] = [];
-      if (Array.isArray(payload)) {
-        filenames = payload.filter(
-          (item): item is string => typeof item === "string"
-        );
-      } else if (Array.isArray(payload?.files)) {
-        filenames = payload.files
-          .filter((item: any) => typeof item?.filename === "string")
-          .map((item: any) => item.filename);
-      }
-
-      if (filenames.length === 0) {
-        setAnnotations({});
-        localStorage.removeItem("ketilabel_annotations");
-        return;
-      }
-
-      const detailResults = await Promise.allSettled(
-        filenames.map(async (name) => {
-          const res = await apiCall(
-            `${API_CONFIG.ENDPOINTS.ANNOTATIONS}/${encodeURIComponent(name)}`
-          );
-          if (!res.ok) throw new Error(`Failed to load ${name}: ${res.status}`);
-          const data = await res.json();
-          return { filename: name, data };
-        })
-      );
-
-      const nextAnnotations: Record<string, any[]> = {};
-
-      detailResults.forEach((result) => {
-        if (result.status !== "fulfilled") {
-          console.error(result.reason);
-          return;
-        }
-
-        const { filename, data } = result.value;
-        const polygons = extractPolygonsFromPayload(data);
-
-        if (!Array.isArray(polygons)) return;
-
-        const imageName = resolveImageNameFromPayload(data, filename, images);
-        if (!imageName) return;
-
-        nextAnnotations[imageName] = polygons;
-      });
-
-      setAnnotations(nextAnnotations);
-      if (Object.keys(nextAnnotations).length > 0) {
-        localStorage.setItem(
-          "ketilabel_annotations",
-          JSON.stringify(nextAnnotations)
-        );
-      } else {
-        localStorage.removeItem("ketilabel_annotations");
-      }
-    } catch (error) {
-      console.error(error);
-      toast({
-        variant: "destructive",
-        title: "Failed to load annotations",
-        description:
-          error instanceof Error ? error.message : "Unexpected error occurred.",
-      });
-    }
-  }, [toast, images]);
-
-  useEffect(() => {
-    const savedAnnotations = localStorage.getItem("ketilabel_annotations");
-    if (savedAnnotations) {
-      try {
-        setAnnotations(JSON.parse(savedAnnotations));
-      } catch (error) {
-        console.error("Failed to load annotations:", error);
-      }
-    }
-  }, []);
-
-  useEffect(() => {
-    syncAnnotationsFromServer();
-  }, [syncAnnotationsFromServer]);
-
-  const fetchLabelingStatus = useCallback(async () => {
-    try {
-      const response = await apiCall(API_CONFIG.ENDPOINTS.LABELING_STATUS);
-      if (response.ok) {
-        const data = await response.json();
-        setNeedsReviewImages(data.needs_review_images || []);
-      }
-    } catch (error) {
-      console.error("Failed to fetch labeling status:", error);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchLabelingStatus();
-  }, [fetchLabelingStatus]);
-
-  const toggleDarkMode = () => {
-    setIsDarkMode(!isDarkMode);
-  };
-
-  const labeledImages = useMemo(() => {
-    return images.filter((img) => 
-      annotations[img]?.length > 0 && !needsReviewImages.includes(img)
-    );
-  }, [images, annotations, needsReviewImages]);
-
-  const unlabeledImages = useMemo(() => {
-    return images.filter((img) => 
-      (!annotations[img] || annotations[img].length === 0) && !needsReviewImages.includes(img)
-    );
-  }, [images, annotations, needsReviewImages]);
-
-  const filteredImages = useMemo(() => {
-    let result = images;
-
-    switch (filterType) {
-      case "labeled":
-        result = labeledImages;
-        break;
-      case "unlabeled":
-        result = unlabeledImages;
-        break;
-      case "needs-review":
-        result = needsReviewImages.filter((img) => images.includes(img));
-        break;
-      default:
-        result = images;
-    }
-
-    return result
-      .filter((img) => img.toLowerCase().includes(searchTerm.toLowerCase()))
-      .sort((a, b) => {
-        if (sortOrder === "asc") {
-          return a.localeCompare(b);
-        } else {
-          return b.localeCompare(a);
-        }
-      });
-  }, [images, filterType, labeledImages, unlabeledImages, needsReviewImages, searchTerm, sortOrder]);
-
-  const handleImageSelect = (image: string) => {
-    setSelectedImage(image);
-  };
-
-  const handleBackToGallery = () => {
-    setSelectedImage(null);
-  };
-
-  const handleNextImage = () => {
-    if (!selectedImage) return;
-    const currentIndex = filteredImages.indexOf(selectedImage);
-    if (currentIndex < filteredImages.length - 1) {
-      setSelectedImage(filteredImages[currentIndex + 1]);
-    }
-  };
-
-  const handlePreviousImage = () => {
-    if (!selectedImage) return;
-    const currentIndex = filteredImages.indexOf(selectedImage);
-    if (currentIndex > 0) {
-      setSelectedImage(filteredImages[currentIndex - 1]);
-    }
-  };
-
-  const hasNext = selectedImage
-    ? filteredImages.indexOf(selectedImage) < filteredImages.length - 1
-    : false;
-  const hasPrevious = selectedImage
-    ? filteredImages.indexOf(selectedImage) > 0
-    : false;
-
-  if (selectedImage) {
-    return (
-      <LabelingWorkspace
-        selectedImage={selectedImage}
-        onBack={handleBackToGallery}
-        uploadedClasses={uploadedClasses}
-        isDarkMode={isDarkMode}
-        toggleDarkMode={toggleDarkMode}
-        onNext={handleNextImage}
-        onPrevious={handlePreviousImage}
-        hasNext={hasNext}
-        hasPrevious={hasPrevious}
-        hasExistingAnnotations={
-          !!(selectedImage && annotations[selectedImage] && annotations[selectedImage].length > 0)
-        }
-        initialAnnotations={selectedImage ? annotations[selectedImage] || [] : []}
-        onAnnotationsSave={(imageId, updatedPolygons) => {
-          setAnnotations((prev) => {
-            const next = { ...prev };
-            if (!updatedPolygons || updatedPolygons.length === 0) {
-              delete next[imageId];
-            } else {
-              next[imageId] = updatedPolygons;
-            }
-            return next;
-          });
-        }}
-      />
-    );
   }
 
-  const handleBatchComplete = async () => {
-    await syncAnnotationsFromServer();
-    await fetchLabelingStatus();
-    toast({
-      title: "Batch labeling complete",
-      description: "Gallery has been refreshed with new annotations.",
-    });
-  };
+  const getPhaseStatus = (phase: number) => {
+    if (!summary) return "idle"
+    if (summary.current_phase === phase) return "active"
+    if (summary.current_phase > phase) return "completed"
+    return "idle"
+  }
+
+  const formatStatValue = (value: number | undefined | null) => {
+    if (value === undefined || value === null) return { display: "—", isEmpty: true }
+    if (value === 0) return { display: "0", isEmpty: true }
+    return { display: value.toString(), isEmpty: false }
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-background">
+        <MainHeader />
+        <main className="container mx-auto px-4 py-12">
+          <div className="text-center">
+            <div className="w-16 h-16 mx-auto rounded-full bg-destructive/10 flex items-center justify-center mb-4">
+              <AlertTriangle className="h-8 w-8 text-destructive" />
+            </div>
+            <p className="text-lg font-medium mb-2">Failed to load pipeline status</p>
+            <p className="text-sm text-muted-foreground mb-4">Please check your connection and try again</p>
+            <Button onClick={refresh} variant="outline" size="sm" className="gap-2">
+              <RefreshCw className="h-4 w-4" />
+              Retry
+            </Button>
+          </div>
+        </main>
+      </div>
+    )
+  }
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      <MainHeader isDarkMode={isDarkMode} toggleDarkMode={toggleDarkMode} />
+    <div className="min-h-screen bg-gradient-to-b from-background to-muted/20">
+      <MainHeader />
 
-      <main className="container mx-auto px-4 py-6">
-        <div className="space-y-6">
-          <WorkflowSummaryCard 
-            summary={workflowSummary} 
-            loading={workflowLoading} 
-            compact={true} 
-          />
-
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-2xl font-semibold tracking-tight">Dataset Gallery</h2>
-              <p className="text-sm text-muted-foreground">
-                Manage and annotate your image dataset.
-              </p>
-            </div>
-            <div className="flex items-center gap-3">
-              {workflowSummary && workflowSummary.queues.reviewed_since_last_train >= 10 && (
-                <Button
-                  variant="default"
-                  size="sm"
-                  onClick={() => window.location.href = '/training'}
-                  className="gap-2"
-                >
-                  <Brain className="h-4 w-4" />
-                  Retrain ({workflowSummary.queues.reviewed_since_last_train} reviewed)
-                </Button>
-              )}
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setBatchDialogOpen(true)}
-                disabled={unlabeledImages.length === 0}
-                className="gap-2"
-              >
-                <Bot className="h-4 w-4" />
-                Auto-Label ({unlabeledImages.length})
-              </Button>
-              <Badge variant="outline" className="px-3 py-1">
-                {images.length} Images
-              </Badge>
-            </div>
+      <main className="container mx-auto px-4 py-8 max-w-4xl">
+        {/* Header */}
+        <div className="flex items-center justify-between mb-10">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">Pipeline</h1>
+            <p className="text-sm text-muted-foreground mt-1">
+              Iteration {summary?.current_iteration ?? 0}
+            </p>
           </div>
-
-          <ImageGalleryFilter
-            onFilterChange={setFilterType}
-            onSearchChange={setSearchTerm}
-            onSortChange={setSortOrder}
-            currentFilter={filterType}
-            currentSearch={searchTerm}
-            currentSort={sortOrder}
-            totalCount={images.length}
-            labeledCount={labeledImages.length}
-            unlabeledCount={unlabeledImages.length}
-            needsReviewCount={needsReviewImages.length}
-          />
-
-          <ImageGallery
-            images={filteredImages}
-            loading={loading}
-            error={error}
-            onImageSelect={handleImageSelect}
-            annotations={annotations}
-            currentPage={galleryPage}
-            onPageChange={setGalleryPage}
-            searchTerm={searchTerm}
-            onSearchChange={setSearchTerm}
-            sortOrder={sortOrder}
-            onSortChange={setSortOrder}
-          />
+          <Button 
+            variant="ghost" 
+            size="icon" 
+            onClick={refresh} 
+            disabled={loading}
+            className="hover:bg-muted transition-colors"
+          >
+            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+          </Button>
         </div>
-      </main>
 
-      <BatchAutoLabelDialog
-        open={batchDialogOpen}
-        onOpenChange={setBatchDialogOpen}
-        unlabeledCount={unlabeledImages.length}
-        unlabeledImages={unlabeledImages}
-        onComplete={handleBatchComplete}
-      />
+        {loading && !summary ? (
+          <div className="text-center py-16">
+            <div className="w-12 h-12 mx-auto rounded-full bg-primary/10 flex items-center justify-center mb-4">
+              <Clock className="h-6 w-6 animate-spin text-primary" />
+            </div>
+            <p className="text-sm text-muted-foreground">Loading pipeline status...</p>
+          </div>
+        ) : (
+          <div className="space-y-8">
+            {/* Phase Stepper */}
+            <div className="relative flex items-center justify-between px-4">
+              {PHASES.map((phase, idx) => {
+                const status = getPhaseStatus(phase.num)
+                const Icon = phase.icon
+                const isActive = status === "active"
+                const isCompleted = status === "completed"
+                const nextStatus = idx < PHASES.length - 1 ? getPhaseStatus(phase.num + 1) : "idle"
+                
+                return (
+                  <div key={phase.num} className="flex items-center flex-1">
+                    <button 
+                      onClick={() => setPhase(phase.num)}
+                      className="flex flex-col items-center group relative z-10 cursor-pointer"
+                      title={isActive ? `Current: Phase ${phase.num}` : `Switch to Phase ${phase.num}: ${phase.name}`}
+                    >
+                      <div className={`
+                        relative w-12 h-12 rounded-full flex items-center justify-center 
+                        transition-all duration-300 ease-out
+                        ${isActive ? 'bg-primary text-primary-foreground shadow-lg shadow-primary/30 scale-110' : ''}
+                        ${isCompleted ? 'bg-primary/20 text-primary' : ''}
+                        ${status === 'idle' ? 'bg-muted text-muted-foreground hover:bg-muted/80' : ''}
+                        group-hover:scale-105 group-hover:shadow-md
+                      `}>
+                        {isCompleted ? (
+                          <CheckCircle className="h-5 w-5" />
+                        ) : (
+                          <Icon className="h-5 w-5" />
+                        )}
+                        {isActive && (
+                          <span className="absolute -bottom-1 -right-1 w-3 h-3 bg-green-500 rounded-full border-2 border-background animate-pulse" />
+                        )}
+                      </div>
+                      <span className={`
+                        text-xs mt-3 font-medium transition-colors duration-200
+                        ${isActive ? 'text-primary' : 'text-muted-foreground group-hover:text-foreground'}
+                      `}>
+                        {phase.name}
+                      </span>
+                    </button>
+                    
+                    {/* Connection Line */}
+                    {idx < PHASES.length - 1 && (
+                      <div className="flex-1 mx-4 relative h-[3px] rounded-full overflow-hidden bg-border">
+                        <div 
+                          className={`
+                            absolute inset-y-0 left-0 rounded-full transition-all duration-500
+                            ${nextStatus !== 'idle' ? 'bg-primary w-full' : 'w-0'}
+                            ${isCompleted && nextStatus === 'active' ? 'bg-gradient-to-r from-primary to-primary/60' : ''}
+                          `}
+                        />
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+
+            {/* Next Action Card */}
+            {summary?.next_action && (
+              <Card className="border-primary/30 bg-gradient-to-r from-primary/5 via-primary/10 to-primary/5 overflow-hidden relative">
+                <div className="absolute inset-0 bg-grid-white/5 [mask-image:linear-gradient(0deg,transparent,black)]" />
+                <CardContent className="p-5 relative">
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-4 min-w-0">
+                      <div className="shrink-0 w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center">
+                        <ArrowRight className="h-5 w-5 text-primary" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="font-semibold truncate">{summary.next_action.title}</p>
+                        <p className="text-sm text-muted-foreground truncate">{summary.next_action.description}</p>
+                      </div>
+                    </div>
+                    <Link href={summary.next_action.route}>
+                      <Button className="shrink-0 shadow-sm hover:shadow-md transition-shadow">
+                        {summary.next_action.cta}
+                        <ArrowRight className="ml-2 h-4 w-4" />
+                      </Button>
+                    </Link>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Stats Grid */}
+            <div className="grid grid-cols-3 gap-4">
+              {[
+                { 
+                  icon: ImageIcon, 
+                  value: summary?.queues.total_images, 
+                  label: "Total Images",
+                  color: "blue",
+                  bgClass: "bg-blue-500/20",
+                  iconClass: "text-blue-600"
+                },
+                { 
+                  icon: Tags, 
+                  value: summary?.queues.labeled_count, 
+                  label: "Labeled",
+                  color: "green",
+                  bgClass: "bg-emerald-500/20",
+                  iconClass: "text-emerald-600"
+                },
+                { 
+                  icon: Activity, 
+                  value: summary?.queues.review_queue_size, 
+                  label: "Needs Review",
+                  color: "amber",
+                  bgClass: "bg-amber-500/20",
+                  iconClass: "text-amber-600"
+                },
+              ].map((stat) => {
+                const Icon = stat.icon
+                const { display, isEmpty } = formatStatValue(stat.value)
+                
+                return (
+                  <Card 
+                    key={stat.label} 
+                    className="group hover:shadow-md transition-all duration-200 hover:-translate-y-0.5 border-border/60"
+                  >
+                    <CardContent className="p-4">
+                      <div className="flex items-center gap-3">
+                        <div className={`p-2.5 rounded-lg ${stat.bgClass} transition-transform group-hover:scale-105`}>
+                          <Icon className={`h-5 w-5 ${stat.iconClass}`} />
+                        </div>
+                        <div>
+                          <p className={`text-2xl font-bold tracking-tight ${isEmpty ? 'text-muted-foreground/60' : ''}`}>
+                            {display}
+                          </p>
+                          <p className="text-xs text-muted-foreground">{stat.label}</p>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )
+              })}
+            </div>
+
+            {/* Current Phase Details */}
+            {summary && (
+              <Card className="border-border/60">
+                <CardContent className="p-5">
+                  <div className="flex items-center justify-between mb-5">
+                    <div className="flex items-center gap-3">
+                      <Badge variant="secondary" className="px-3 py-1 font-medium">
+                        Phase {summary.current_phase}
+                      </Badge>
+                      <span className="text-sm font-semibold">
+                        {PHASES[summary.current_phase - 1]?.name}
+                      </span>
+                    </div>
+                    {summary.training.last_map70 !== null && (
+                      <div className="flex items-center gap-2 text-sm">
+                        <span className="text-muted-foreground">mAP@0.7:</span>
+                        <Badge 
+                          variant="outline" 
+                          className={`
+                            font-mono font-medium
+                            ${summary.training.last_map70 >= 0.7 
+                              ? 'border-green-500/50 text-green-600 bg-green-500/10' 
+                              : 'border-amber-500/50 text-amber-600 bg-amber-500/10'
+                            }
+                          `}
+                        >
+                          {(summary.training.last_map70 * 100).toFixed(1)}%
+                        </Badge>
+                      </div>
+                    )}
+                  </div>
+                  
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    {[
+                      { label: "Auto-labeled", value: summary.queues.auto_label_queue_size },
+                      { label: "Since Last Train", value: summary.queues.reviewed_since_last_train },
+                      { label: "Train Count", value: summary.training.train_count },
+                      { label: "Models", value: summary.training.model_count },
+                    ].map((item, idx) => {
+                      const { display, isEmpty } = formatStatValue(item.value)
+                      return (
+                        <div 
+                          key={item.label} 
+                          className={`
+                            p-3 rounded-lg bg-muted/50 
+                            ${idx < 3 ? 'border-r border-border/30 md:border-r' : ''}
+                          `}
+                        >
+                          <p className="text-xs text-muted-foreground mb-1">{item.label}</p>
+                          <p className={`text-lg font-semibold ${isEmpty ? 'text-muted-foreground/50' : ''}`}>
+                            {display}
+                          </p>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {summary?.current_phase === 3 && (
+              <Card className="border-emerald-500/30 bg-gradient-to-r from-emerald-500/5 via-emerald-500/10 to-emerald-500/5">
+                <CardContent className="p-5">
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-4 min-w-0">
+                      <div className="shrink-0 w-10 h-10 rounded-full bg-emerald-500/20 flex items-center justify-center">
+                        <RotateCcw className="h-5 w-5 text-emerald-600" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="font-semibold">Start Next Iteration</p>
+                        <p className="text-sm text-muted-foreground">
+                          {summary.queues.reviewed_since_last_train > 0 
+                            ? `${summary.queues.reviewed_since_last_train} reviewed images ready for training`
+                            : "Finish reviewing and start new training cycle"
+                          }
+                        </p>
+                      </div>
+                    </div>
+                    <Button 
+                      onClick={handleStartNextIteration}
+                      disabled={isStartingIteration}
+                      className="shrink-0 bg-emerald-600 hover:bg-emerald-700 shadow-sm hover:shadow-md transition-shadow"
+                    >
+                      {isStartingIteration ? (
+                        <RefreshCw className="h-4 w-4 animate-spin mr-2" />
+                      ) : (
+                        <Play className="h-4 w-4 mr-2" />
+                      )}
+                      Train New Model
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+          </div>
+        )}
+      </main>
     </div>
-  );
+  )
 }

@@ -60,6 +60,7 @@ export default function BatchAutoLabelDialog({
   const [selectedModelId, setSelectedModelId] = useState<string | null>(null)
   const [confidence, setConfidence] = useState(0.5)
   const [autoLabelThreshold, setAutoLabelThreshold] = useState(0.8)
+  const [imageCount, setImageCount] = useState(50)
   const [isLoadingModels, setIsLoadingModels] = useState(false)
   const [isProcessing, setIsProcessing] = useState(false)
   const [progress, setProgress] = useState(0)
@@ -72,16 +73,17 @@ export default function BatchAutoLabelDialog({
       setDialogState("configure")
       setBatchResult(null)
       setProgress(0)
+      setImageCount(Math.min(50, unlabeledCount))
     }
-  }, [open])
+  }, [open, unlabeledCount])
 
   const fetchAvailableModels = async () => {
     setIsLoadingModels(true)
     try {
-      const response = await apiCall(API_CONFIG.ENDPOINTS.MODELS_WEIGHTS)
+      const response = await apiCall(API_CONFIG.ENDPOINTS.MODELS_LIST + '/registry')
       if (response.ok) {
         const data = await response.json()
-        const models = data.models || []
+        const models = (data.success ? data.models : []) || []
         
         const uniqueModels = models.filter(
           (model: ModelInfo, index: number, self: ModelInfo[]) =>
@@ -127,13 +129,16 @@ export default function BatchAutoLabelDialog({
     setProgress(10)
 
     try {
+      const imagesToProcess = unlabeledImages.slice(0, imageCount)
+      
       const response = await apiCall(
         `${API_CONFIG.ENDPOINTS.BATCH_INFERENCE}/${selectedModelId}/batch-inference`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            process_unlabeled: true,
+            image_paths: imagesToProcess,
+            process_unlabeled: false,
             confidence: confidence,
             auto_label_threshold: autoLabelThreshold,
             save_annotations: true,
@@ -262,6 +267,44 @@ export default function BatchAutoLabelDialog({
         </p>
       </div>
 
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <Label className="text-sm font-medium">Images to Process</Label>
+          <span className="text-sm font-mono text-muted-foreground">
+            {imageCount === unlabeledCount ? "All" : imageCount} / {unlabeledCount}
+          </span>
+        </div>
+        <Slider
+          value={[imageCount]}
+          onValueChange={([val]) => setImageCount(val)}
+          min={Math.min(25, unlabeledCount)}
+          max={unlabeledCount}
+          step={25}
+          className="w-full"
+        />
+        <div className="flex gap-2">
+          {[25, 50, 100].filter(n => n <= unlabeledCount).map((preset) => (
+            <Button
+              key={preset}
+              variant={imageCount === preset ? "secondary" : "outline"}
+              size="sm"
+              className="flex-1 h-7 text-xs"
+              onClick={() => setImageCount(preset)}
+            >
+              {preset}
+            </Button>
+          ))}
+          <Button
+            variant={imageCount === unlabeledCount ? "secondary" : "outline"}
+            size="sm"
+            className="flex-1 h-7 text-xs"
+            onClick={() => setImageCount(unlabeledCount)}
+          >
+            All
+          </Button>
+        </div>
+      </div>
+
       <Card className="bg-muted/30">
         <CardContent className="p-4">
           <div className="flex items-center gap-3">
@@ -269,7 +312,9 @@ export default function BatchAutoLabelDialog({
               <Bot className="h-5 w-5 text-primary" />
             </div>
             <div>
-              <p className="text-sm font-medium">Ready to process {unlabeledCount} images</p>
+              <p className="text-sm font-medium">
+                Ready to process {imageCount === unlabeledCount ? "all " : ""}{imageCount} image{imageCount !== 1 ? "s" : ""}
+              </p>
               <p className="text-xs text-muted-foreground">
                 This will run YOLO inference and save annotations automatically.
               </p>
@@ -303,7 +348,7 @@ export default function BatchAutoLabelDialog({
         <div>
           <h3 className="text-lg font-semibold">Processing Images...</h3>
           <p className="text-sm text-muted-foreground mt-1">
-            Running YOLO inference on {unlabeledCount} images
+            Running YOLO inference on {imageCount} images
           </p>
         </div>
       </div>

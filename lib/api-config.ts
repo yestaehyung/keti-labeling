@@ -79,6 +79,21 @@ export const apiCall = (endpoint: string, options?: RequestInit) => {
   return fetch(url, options)
 }
 
+export const apiCallWithTimeout = (
+  endpoint: string, 
+  options?: RequestInit, 
+  timeoutMs: number = 60000
+): Promise<Response> => {
+  const url = `${API_CONFIG.BASE_URL}${endpoint}`
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
+  
+  return fetch(url, {
+    ...options,
+    signal: controller.signal,
+  }).finally(() => clearTimeout(timeoutId))
+}
+
 // Gemini 기본 설정
 export const GEMINI_SEGMENTATION_DEFAULTS = {
   model: "gemini-2.5-flash-preview-05-20",

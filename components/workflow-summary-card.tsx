@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { 
   ArrowRight, TrendingUp, Zap, Brain, RotateCcw, 
-  CheckCircle, AlertCircle, Clock
+  CheckCircle, AlertCircle, Clock, Play
 } from "lucide-react"
 import Link from "next/link"
 import { WorkflowSummary } from "@/hooks/use-workflow-status"
@@ -15,15 +15,38 @@ interface WorkflowSummaryCardProps {
   summary: WorkflowSummary | null
   loading?: boolean
   compact?: boolean
+  onGoToLabeling?: () => void
+  onStartTraining?: () => void
 }
 
 const PHASE_INFO = {
-  1: { name: "Cold-start", icon: Zap, color: "text-blue-600", bg: "bg-blue-100" },
-  2: { name: "Distillation", icon: Brain, color: "text-purple-600", bg: "bg-purple-100" },
-  3: { name: "Refinement", icon: RotateCcw, color: "text-green-600", bg: "bg-green-100" },
+  1: { 
+    name: "Cold-start", 
+    icon: Zap, 
+    color: "text-blue-600", 
+    bg: "bg-blue-100",
+    description: "Initial labeling phase. Use SAM or manual tools to label images. YOLO model will be available after training.",
+    hint: "Click on any image below to start labeling with SAM v2"
+  },
+  2: { 
+    name: "Distillation", 
+    icon: Brain, 
+    color: "text-purple-600", 
+    bg: "bg-purple-100",
+    description: "Model is being trained with your labels. Auto-labeling will become available soon.",
+    hint: "Review auto-labeled images for accuracy"
+  },
+  3: { 
+    name: "Refinement", 
+    icon: RotateCcw, 
+    color: "text-green-600", 
+    bg: "bg-green-100",
+    description: "Iterative improvement phase. Review and correct auto-labeled results to improve model accuracy.",
+    hint: "Focus on correcting low-confidence predictions"
+  },
 } as const
 
-export default function WorkflowSummaryCard({ summary, loading, compact = false }: WorkflowSummaryCardProps) {
+export default function WorkflowSummaryCard({ summary, loading, compact = false, onGoToLabeling, onStartTraining }: WorkflowSummaryCardProps) {
   if (loading && !summary) {
     return (
       <Card>
@@ -55,6 +78,8 @@ export default function WorkflowSummaryCard({ summary, loading, compact = false 
   const PhaseIcon = phaseInfo.icon
 
   if (compact) {
+    const isOnGalleryPage = summary.next_action.route === "/" || summary.next_action.route === "/gallery"
+    
     return (
       <Card className="bg-gradient-to-r from-primary/5 to-primary/10 border-primary/20">
         <CardContent className="p-4">
@@ -63,7 +88,7 @@ export default function WorkflowSummaryCard({ summary, loading, compact = false 
               <div className={`${phaseInfo.bg} p-2 rounded-lg`}>
                 <PhaseIcon className={`h-5 w-5 ${phaseInfo.color}`} />
               </div>
-              <div>
+              <div className="flex-1">
                 <div className="flex items-center gap-2">
                   <span className="font-semibold">Phase {phase}: {phaseInfo.name}</span>
                   <Badge variant="outline" className="text-xs">
@@ -71,16 +96,36 @@ export default function WorkflowSummaryCard({ summary, loading, compact = false 
                   </Badge>
                 </div>
                 <p className="text-sm text-muted-foreground">
-                  {summary.next_action.description}
+                  {phaseInfo.hint}
                 </p>
               </div>
             </div>
-            <Link href={summary.next_action.route}>
-              <Button size="sm">
-                {summary.next_action.cta}
-                <ArrowRight className="ml-2 h-4 w-4" />
-              </Button>
-            </Link>
+            <div className="flex items-center gap-3 text-sm">
+              <div className="text-center px-3 py-1 rounded bg-amber-100 dark:bg-amber-950/50">
+                <div className="font-bold text-amber-600">{summary.queues.review_queue_size}</div>
+                <div className="text-xs text-muted-foreground">Review</div>
+              </div>
+              <div className="text-center px-3 py-1 rounded bg-green-100 dark:bg-green-950/50">
+                <div className="font-bold text-green-600">{summary.queues.labeled_count}</div>
+                <div className="text-xs text-muted-foreground">Labeled</div>
+              </div>
+              {phase === 1 && summary.queues.labeled_count >= 1 && (
+                <Link href="/training">
+                  <Button size="sm" className="bg-purple-600 hover:bg-purple-700">
+                    <Play className="mr-2 h-4 w-4" />
+                    Start Training
+                  </Button>
+                </Link>
+              )}
+              {!isOnGalleryPage && phase !== 1 && (
+                <Link href={summary.next_action.route}>
+                  <Button size="sm">
+                    {summary.next_action.cta}
+                    <ArrowRight className="ml-2 h-4 w-4" />
+                  </Button>
+                </Link>
+              )}
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -158,12 +203,19 @@ export default function WorkflowSummaryCard({ summary, loading, compact = false 
 
         <div className="flex items-center justify-between pt-2 border-t">
           <span className="text-sm text-muted-foreground">{summary.next_action.title}</span>
-          <Link href={summary.next_action.route}>
-            <Button size="sm" variant="default">
+          {onGoToLabeling && summary.next_action.route === "/" ? (
+            <Button size="sm" variant="default" onClick={onGoToLabeling}>
               {summary.next_action.cta}
               <ArrowRight className="ml-2 h-4 w-4" />
             </Button>
-          </Link>
+          ) : (
+            <Link href={summary.next_action.route}>
+              <Button size="sm" variant="default">
+                {summary.next_action.cta}
+                <ArrowRight className="ml-2 h-4 w-4" />
+              </Button>
+            </Link>
+          )}
         </div>
       </CardContent>
     </Card>

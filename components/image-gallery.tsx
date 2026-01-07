@@ -106,32 +106,6 @@ export default function ImageGallery({
 
   return (
     <div className="space-y-6">
-      {/* Search and Sort Controls */}
-      <div className="flex flex-col sm:flex-row gap-4">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder="Search images..."
-            value={searchTerm}
-            onChange={(e) => onSearchChange?.(e.target.value)}
-            className="pl-10"
-          />
-        </div>
-        <Button variant="outline" onClick={handleSort} className="shrink-0 bg-transparent">
-          <ArrowUpDown className="mr-2 h-4 w-4" />
-          Sort {sortOrder === "asc" ? "A-Z" : "Z-A"}
-        </Button>
-      </div>
-
-      {/* Results Count */}
-      {searchTerm && (
-        <div className="flex items-center space-x-2">
-          <Badge variant="secondary">
-            {filteredImages.length} of {images.length} images
-          </Badge>
-        </div>
-      )}
-
       {/* Image Grid - Masonry Layout */}
       <div className="columns-1 sm:columns-2 md:columns-3 lg:columns-4 xl:columns-5 gap-4 space-y-4">
         {paginatedImages.map((image) => (
@@ -174,14 +148,6 @@ export default function ImageGallery({
           </div>
         ))}
       </div>
-
-      {filteredImages.length === 0 && searchTerm && (
-        <div className="text-center py-16">
-          <div className="text-4xl mb-4">🔍</div>
-          <h3 className="text-lg font-medium mb-2">No images found</h3>
-          <p className="text-muted-foreground">Try adjusting your search terms</p>
-        </div>
-      )}
 
       {filteredImages.length > PAGE_SIZE && (
         <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-4">

@@ -9,11 +9,7 @@ export type FilterType = "all" | "labeled" | "unlabeled" | "needs-review"
 
 interface ImageGalleryFilterProps {
   onFilterChange: (filter: FilterType) => void
-  onSearchChange: (search: string) => void
-  onSortChange: (sort: "asc" | "desc") => void
   currentFilter: FilterType
-  currentSearch: string
-  currentSort: "asc" | "desc"
   totalCount: number
   labeledCount: number
   unlabeledCount: number
@@ -22,11 +18,7 @@ interface ImageGalleryFilterProps {
 
 export default function ImageGalleryFilter({
   onFilterChange,
-  onSearchChange,
-  onSortChange,
   currentFilter,
-  currentSearch,
-  currentSort,
   totalCount,
   labeledCount,
   unlabeledCount,
@@ -50,28 +42,6 @@ export default function ImageGalleryFilter({
 
   return (
     <div className="space-y-4">
-      {/* Search Bar */}
-      <div className="flex gap-2">
-        <div className="flex-1 relative">
-          <Filter className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <input
-            type="text"
-            placeholder="Search images..."
-            value={currentSearch}
-            onChange={(e) => onSearchChange(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 text-sm border rounded-md focus:outline-none focus:ring-2 focus:ring-primary"
-          />
-        </div>
-        <select
-          value={currentSort}
-          onChange={(e) => onSortChange(e.target.value as "asc" | "desc")}
-          className="h-9 px-3 text-sm border rounded-md focus:outline-none focus:ring-2 focus:ring-primary"
-        >
-          <option value="asc">Name A-Z</option>
-          <option value="desc">Name Z-A</option>
-        </select>
-      </div>
-
       {/* Filter Tabs */}
       <div className="flex flex-wrap gap-2">
         {filterOptions.map((option) => {

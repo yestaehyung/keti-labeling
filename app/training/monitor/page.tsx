@@ -7,10 +7,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Progress } from "@/components/ui/progress"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
-import { Brain, ArrowLeft, Activity, FileText, Timer, Home, RefreshCw, Trash2, BarChart3, ChevronDown } from "lucide-react"
+import { Activity, FileText, Timer, RefreshCw, Trash2, BarChart3, ChevronDown, Database } from "lucide-react"
+import MainHeader from "@/components/main-header"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { apiCall, API_CONFIG } from "@/lib/api-config"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
+import PostTrainingAutoLabelDialog from "@/components/post-training-auto-label-dialog"
 
 interface TrainingData {
   files: Array<{ id: string; name: string; size: number }>
@@ -54,11 +56,21 @@ interface EvaluationMetricDetail {
   [key: string]: string | number | undefined
 }
 
+interface PerClassMetric {
+  class_id: number
+  ap50: EvaluationMetricDetail
+  ap50_95: EvaluationMetricDetail
+  precision: EvaluationMetricDetail
+  recall: EvaluationMetricDetail
+}
+
 interface ModelEvaluation {
   model_id: string
   model_name: string
   evaluation_summary?: EvaluationSummary
   detailed_metrics?: Record<string, EvaluationMetricDetail>
+  per_class_evaluation?: Record<string, PerClassMetric>
+  class_names?: string[]
   training_info?: {
     annotation_files?: string[]
     training_parameters?: {
@@ -73,7 +85,6 @@ interface ModelEvaluation {
 
 export default function TrainingMonitorPage() {
   const [progress, setProgress] = useState(0)
-  const [logs, setLogs] = useState<string[]>([])
   const [data, setData] = useState<TrainingData | null>(null)
   const [jobId, setJobId] = useState<string | null>(null)
   const [status, setStatus] = useState<TrainingStatus | null>(null)
@@ -84,6 +95,8 @@ export default function TrainingMonitorPage() {
   const [evaluationError, setEvaluationError] = useState<string | null>(null)
   const [isDatasetFilesOpen, setIsDatasetFilesOpen] = useState(false)
   const [isTrainingFilesOpen, setIsTrainingFilesOpen] = useState(false)
+  const [showAutoLabelDialog, setShowAutoLabelDialog] = useState(false)
+  const autoLabelShownRef = useRef<Set<string>>(new Set())
 
   // Load stored training data and job id
   useEffect(() => {
@@ -98,13 +111,9 @@ export default function TrainingMonitorPage() {
   // Poll job status if jobId exists; else simulate
   useEffect(() => {
     if (!jobId) {
-      // Simulated progress and logs when no server job
+      // Simulated progress when no server job
       const interval = setInterval(() => {
         setProgress((p) => Math.min(100, p + Math.random() * 7 + 3))
-        setLogs((prev) => [
-          `[${new Date().toLocaleTimeString()}] Step completed. Loss=${(Math.random() * 0.5 + 0.1).toFixed(3)} Acc=${(Math.random() * 0.2 + 0.7).toFixed(3)}`,
-          ...prev,
-        ].slice(0, 100))
       }, 1200)
       return () => clearInterval(interval)
     }
@@ -116,44 +125,12 @@ export default function TrainingMonitorPage() {
         const s: TrainingStatus = await res.json()
         setStatus(s)
         setProgress(s.progress ?? 0)
-        setLogs((prev) => {
-          const entries: string[] = []
-          const timestamp = new Date().toLocaleTimeString()
-
-          if (s.message) {
-            entries.push(`[${timestamp}] ${s.message}`)
-          }
-
-          if (s.metrics && typeof s.metrics === "object") {
-            const metricsEntries = Object.entries(s.metrics)
-              .map(([key, value]) => `${key}: ${typeof value === "number" ? value.toFixed(4) : value}`)
-            if (metricsEntries.length > 0) {
-              entries.push(`[${timestamp}] Metrics → ${metricsEntries.join(", ")}`)
-            }
-          }
-
-          if (typeof s.error === "string" && s.error.trim().length > 0) {
-            entries.push(`[${timestamp}] ⚠️ Error → ${s.error.trim()}`)
-          }
-
-          if (s.annotation_filenames && s.annotation_filenames.length > 0) {
-            entries.push(`[${timestamp}] Files → ${s.annotation_filenames.join(", ")}`)
-          }
-
-          if (typeof s.processed_images_count === "number") {
-            entries.push(`[${timestamp}] Processed Images → ${s.processed_images_count}`)
-          }
-
-          if (entries.length === 0) return prev.slice(0, 300)
-          return [...entries, ...prev].slice(0, 300)
-        })
         if (s.status === "completed" || s.status === "failed" || s.status === "cancelled") {
           if (pollingRef.current) clearInterval(pollingRef.current)
           pollingRef.current = null
         }
       } catch (e) {
-        const timestamp = new Date().toLocaleTimeString()
-        setLogs((prev) => [`[${timestamp}] Failed to fetch status`, ...prev].slice(0, 300))
+        console.error("Failed to fetch training status", e)
       }
     }
 
@@ -164,6 +141,13 @@ export default function TrainingMonitorPage() {
       pollingRef.current = null
     }
   }, [jobId])
+
+  useEffect(() => {
+    if (status?.status === "completed" && jobId && !autoLabelShownRef.current.has(jobId)) {
+      autoLabelShownRef.current.add(jobId)
+      setShowAutoLabelDialog(true)
+    }
+  }, [status?.status, jobId])
 
   // Load jobs list
   const refreshJobs = useCallback(async () => {
@@ -181,6 +165,17 @@ export default function TrainingMonitorPage() {
 
   const deleteJob = async (id: string) => {
     try {
+      const targetJob = jobs.find(j => j.job_id === id)
+      const currentStatus = targetJob?.status || status?.status
+      
+      if (currentStatus === "preparing" || currentStatus === "training") {
+        const stopRes = await apiCall(`${API_CONFIG.ENDPOINTS.TRAINING_JOBS}/${encodeURIComponent(id)}/stop`, { method: "POST" })
+        if (!stopRes.ok) {
+          console.error("Failed to stop job:", await stopRes.text())
+        }
+        await new Promise(resolve => setTimeout(resolve, 500))
+      }
+      
       const res = await apiCall(`${API_CONFIG.ENDPOINTS.TRAINING_JOBS}/${encodeURIComponent(id)}`, { method: "DELETE" })
       if (res.ok) {
         if (jobId === id) {
@@ -241,35 +236,7 @@ export default function TrainingMonitorPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      <header className="border-b bg-card/50 backdrop-blur supports-[backdrop-filter]:bg-card/50">
-        <div className="container mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex h-16 items-center justify-between">
-            <div className="flex items-center space-x-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-                <Brain className="h-6 w-6" />
-              </div>
-              <div>
-                <h1 className="text-xl font-bold font-sans">Training Monitor</h1>
-                <p className="text-xs text-muted-foreground font-mono">{jobId ? `Job: ${jobId}` : "Testing mode"}</p>
-              </div>
-            </div>
-            <div className="flex items-center space-x-2">
-              <Link href="/training">
-                <Button variant="outline">
-                  <ArrowLeft className="mr-2 h-4 w-4" />
-                  Back to Training
-                </Button>
-              </Link>
-              <Link href="/">
-                <Button variant="secondary">
-                  <Home className="mr-2 h-4 w-4" />
-                  Labeling
-                </Button>
-              </Link>
-            </div>
-          </div>
-        </div>
-      </header>
+      <MainHeader />
 
       <main className="container mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
         {/* Progress */}
@@ -425,6 +392,54 @@ export default function TrainingMonitorPage() {
                       </div>
                     )}
 
+                    {evaluation.per_class_evaluation && Object.keys(evaluation.per_class_evaluation).length > 0 && (
+                      <div className="space-y-2">
+                        <h4 className="font-semibold text-base">클래스별 성능</h4>
+                        <div className="border rounded-md overflow-hidden">
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-xs">
+                              <thead className="bg-muted/50">
+                                <tr>
+                                  <th className="text-left p-2 font-medium">Class</th>
+                                  <th className="text-center p-2 font-medium">AP50</th>
+                                  <th className="text-center p-2 font-medium">AP50-95</th>
+                                  <th className="text-center p-2 font-medium">Precision</th>
+                                  <th className="text-center p-2 font-medium">Recall</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {Object.entries(evaluation.per_class_evaluation).map(([className, metrics]) => (
+                                  <tr key={className} className="border-t">
+                                    <td className="p-2 font-medium">{className}</td>
+                                    <td className="text-center p-2">
+                                      <Badge variant={metrics.ap50.grade === "Excellent" ? "default" : metrics.ap50.grade === "Good" ? "secondary" : "outline"}>
+                                        {metrics.ap50.percentage}
+                                      </Badge>
+                                    </td>
+                                    <td className="text-center p-2">
+                                      <Badge variant={metrics.ap50_95.grade === "Excellent" ? "default" : metrics.ap50_95.grade === "Good" ? "secondary" : "outline"}>
+                                        {metrics.ap50_95.percentage}
+                                      </Badge>
+                                    </td>
+                                    <td className="text-center p-2">
+                                      <Badge variant={metrics.precision.grade === "Excellent" ? "default" : metrics.precision.grade === "Good" ? "secondary" : "outline"}>
+                                        {metrics.precision.percentage}
+                                      </Badge>
+                                    </td>
+                                    <td className="text-center p-2">
+                                      <Badge variant={metrics.recall.grade === "Excellent" ? "default" : metrics.recall.grade === "Good" ? "secondary" : "outline"}>
+                                        {metrics.recall.percentage}
+                                      </Badge>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
                     {evaluation.training_info && (
                       <div className="space-y-2">
                         <h4 className="font-semibold text-base">학습 정보</h4>
@@ -476,9 +491,13 @@ export default function TrainingMonitorPage() {
                 <span className="text-muted-foreground">{startedAt ? startedAt.toLocaleString() : "-"}</span>
               </div>
               <div className="flex items-center space-x-2 pt-2">
-                <Button variant="outline" onClick={() => { setLogs([]); }} className="flex-1">
-                  Clear Logs
-                </Button>
+                {status?.status === "completed" && (
+                  <Link href="/models" className="flex-1">
+                    <Button variant="default" className="w-full">
+                      <Database className="mr-2 h-4 w-4" /> View in Model Registry
+                    </Button>
+                  </Link>
+                )}
                 {jobId && (
                   <Button variant="secondary" onClick={() => deleteJob(jobId)} className="flex-1">
                     <Trash2 className="mr-2 h-4 w-4" /> Cancel/Delete
@@ -522,19 +541,18 @@ export default function TrainingMonitorPage() {
           </CardContent>
         </Card>
 
-        {/* Logs */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Logs</CardTitle>
-            <CardDescription>Recent training events</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="max-h-64 overflow-y-auto font-mono text-xs whitespace-pre-wrap space-y-1">
-              {logs.length ? logs.map((l, i) => <div key={i}>{l}</div>) : <div className="text-muted-foreground">Waiting for logs…</div>}
-            </div>
-          </CardContent>
-        </Card>
+
       </main>
+
+      <PostTrainingAutoLabelDialog
+        open={showAutoLabelDialog}
+        onOpenChange={setShowAutoLabelDialog}
+        modelId={jobId || ""}
+        modelName={status?.model_name || jobId || "New Model"}
+        onComplete={() => {
+          refreshJobs()
+        }}
+      />
     </div>
   )
 }

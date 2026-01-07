@@ -8,7 +8,6 @@ import {
   Sun,
   Target,
   Upload,
-  Download,
   Brain,
   LayoutGrid,
   Zap,
@@ -21,12 +20,11 @@ interface MainHeaderProps {
 }
 
 const navItems = [
-  { id: "gallery", href: "/", label: "Dataset Gallery", icon: LayoutGrid },
-  { id: "pipeline", href: "/pipeline", label: "Pipeline Status", icon: Zap },
-  { id: "export", href: "/export", label: "Export Data", icon: Download },
-  { id: "upload", href: "/upload", label: "Upload Resources", icon: Upload },
-  { id: "knowledge-distillation", href: "/knowledge-distillation", label: "Knowledge Distillation", icon: Brain },
-  { id: "model-registry", href: "/model-registry", label: "Model Registry", icon: Database },
+  { id: "pipeline", href: "/", label: "Pipeline", icon: Zap },
+  { id: "gallery", href: "/gallery", label: "Dataset", icon: LayoutGrid },
+  { id: "upload", href: "/upload", label: "Upload", icon: Upload },
+  { id: "training", href: "/training", label: "Training", icon: Brain },
+  { id: "model-registry", href: "/models", label: "Models", icon: Database },
 ];
 
 export default function MainHeader({ isDarkMode, toggleDarkMode }: MainHeaderProps) {

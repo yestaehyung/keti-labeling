@@ -15,7 +15,7 @@ import { Slider } from "@/components/ui/slider"
 import AdvancedPolygonVisualization from "./advanced-polygon-visualization"
 import ClassManager, { type ClassDefinition } from "./class-manager"
 import { useToast } from "@/hooks/use-toast"
-import { apiCall, API_CONFIG, GEMINI_SEGMENTATION_DEFAULTS } from "@/lib/api-config"
+import { apiCall, apiCallWithTimeout, API_CONFIG, GEMINI_SEGMENTATION_DEFAULTS } from "@/lib/api-config"
 
 const getPolygonKey = (polygon: any, index: number) => polygon?.id ?? `polygon-${index}`
 
@@ -38,6 +38,7 @@ interface LabelingWorkspaceProps {
   hasPrevious?: boolean
   hasExistingAnnotations?: boolean
   initialAnnotations?: any[]
+  currentPhase?: number
   onAnnotationsSave?: (imageId: string, annotations: any[]) => void
 }
 
@@ -53,6 +54,7 @@ export default function LabelingWorkspace({
   hasPrevious,
   hasExistingAnnotations,
   initialAnnotations = [],
+  currentPhase = 1,
   onAnnotationsSave,
 }: LabelingWorkspaceProps) {
   const [isProcessing, setIsProcessing] = useState(false)
@@ -158,19 +160,43 @@ export default function LabelingWorkspace({
     }
   }, [classes])
 
-  // Track previous image to prevent unnecessary resets
   const prevImageRef = useRef<string | null>(null)
+  const hasLocalChangesRef = useRef(false)
+  const prevInitialAnnotationsRef = useRef<any[] | null>(null)
 
-  // Reset state when selectedImage changes or annotations update
+  const enrichAnnotationsWithClasses = (annotations: any[]) => {
+    if (!annotations || annotations.length === 0) return []
+    return annotations.map(ann => {
+      if (ann.classId) return ann
+      
+      const label = ann.label || ann.className
+      if (!label) return ann
+      
+      const matchingClass = classes.find(
+        cls => cls.name.toLowerCase() === label.toLowerCase()
+      )
+      
+      if (matchingClass) {
+        return {
+          ...ann,
+          classId: matchingClass.id,
+          className: matchingClass.name,
+          classColor: matchingClass.color,
+          color: ann.color || matchingClass.color,
+        }
+      }
+      return ann
+    })
+  }
+
   useEffect(() => {
-    // Check if image actually changed
     const imageChanged = selectedImage !== prevImageRef.current
 
     if (imageChanged) {
       console.log("🔄 Image changed, resetting workspace state for:", selectedImage)
       prevImageRef.current = selectedImage
+      hasLocalChangesRef.current = false
 
-      // Reset complete state for new image
       setProcessingStatus(null)
       setRawServerLog(null)
       setShowRawLog(false)
@@ -183,28 +209,29 @@ export default function LabelingWorkspace({
       setGeminiPrompt("")
       setIsSavingAnnotations(false)
 
-      // Load initial annotations
-      setPolygonData(initialAnnotations ? JSON.parse(JSON.stringify(initialAnnotations)) : [])
+      const enriched = enrichAnnotationsWithClasses(initialAnnotations ? JSON.parse(JSON.stringify(initialAnnotations)) : [])
+      setPolygonData(enriched)
+      prevInitialAnnotationsRef.current = initialAnnotations
     } else {
-      // Image is the same, but initialAnnotations might have updated (e.g. late server load)
-      if (initialAnnotations) {
-        setPolygonData((prev) => {
-          // Only update if we don't have data yet, OR if we want to force sync
-          // For now, let's assume if initialAnnotations updates, we should sync it
-          // to ensure server data appears.
-          return JSON.parse(JSON.stringify(initialAnnotations))
-        })
+      const initialAnnotationsChanged = 
+        JSON.stringify(initialAnnotations) !== JSON.stringify(prevInitialAnnotationsRef.current)
+      
+      if (initialAnnotationsChanged && !hasLocalChangesRef.current) {
+        console.log("🔄 initialAnnotations changed, syncing...")
+        const enriched = enrichAnnotationsWithClasses(initialAnnotations ? JSON.parse(JSON.stringify(initialAnnotations)) : [])
+        setPolygonData(enriched)
+        prevInitialAnnotationsRef.current = initialAnnotations
       }
     }
-  }, [selectedImage, initialAnnotations])
+  }, [selectedImage, initialAnnotations, classes])
 
   const fetchAvailableModels = async () => {
     setIsLoadingModels(true)
     try {
-      const response = await apiCall(API_CONFIG.ENDPOINTS.MODELS_WEIGHTS)
+      const response = await apiCall(API_CONFIG.ENDPOINTS.MODELS_LIST + '/registry')
       if (response.ok) {
         const data = await response.json()
-        const models = data.models || []
+        const models = (data.success ? data.models : []) || []
         
         const uniqueModels = models.filter((model: { model_id: string }, index: number, self: Array<{ model_id: string }>) => 
           index === self.findIndex(m => m.model_id === model.model_id)
@@ -230,10 +257,8 @@ export default function LabelingWorkspace({
   }
 
   useEffect(() => {
-    if (processingContext === 'hilips') {
-      fetchAvailableModels()
-    }
-  }, [processingContext])
+    fetchAvailableModels()
+  }, [])
 
   const handleModelInference = async () => {
     if (!selectedModelId) {
@@ -369,6 +394,7 @@ export default function LabelingWorkspace({
         })
         .filter(Boolean)
 
+      hasLocalChangesRef.current = true
       setPolygonData(prev => prev ? [...prev, ...convertedPolygons] : convertedPolygons)
       setProcessingStatus("completed")
 
@@ -508,6 +534,7 @@ export default function LabelingWorkspace({
           ],
           id: mask.id ?? createPolygonId("sam"),
         }))
+        hasLocalChangesRef.current = true
         setPolygonData(convertedPolygons)
 
         toast({
@@ -516,6 +543,7 @@ export default function LabelingWorkspace({
         })
       } else {
         const mockPolygonResults = generateMockPolygonData()
+        hasLocalChangesRef.current = true
         setPolygonData(mockPolygonResults)
 
         toast({
@@ -585,6 +613,7 @@ export default function LabelingWorkspace({
       }
     })
 
+    hasLocalChangesRef.current = true
     setPolygonData(updatedPolygons)
 
     persistAnnotations(updatedPolygons)
@@ -625,6 +654,7 @@ export default function LabelingWorkspace({
     })
 
     if (mutated) {
+      hasLocalChangesRef.current = true
       setPolygonData(updatedPolygons)
       persistAnnotations(updatedPolygons)
     }
@@ -666,6 +696,7 @@ export default function LabelingWorkspace({
       nextSelection = null
     }
 
+    hasLocalChangesRef.current = true
     setPolygonData(updatedPolygons)
     persistAnnotations(updatedPolygons)
 
@@ -806,13 +837,13 @@ export default function LabelingWorkspace({
       const apiUrl = API_CONFIG.ENDPOINTS.GENERATE_POLYGONS_WITH_POINTS
       console.log("🌐 API call:", { apiUrl, pointData })
 
-      const response = await apiCall(apiUrl, {
+      const response = await apiCallWithTimeout(apiUrl, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify(pointData),
-      })
+      }, 90000)
 
       console.log("📡 API response status:", response.status, response.statusText)
 
@@ -833,32 +864,96 @@ export default function LabelingWorkspace({
           })
         }
 
-        const convertedPolygons = responseData.masks.map((mask: any) => ({
-          segmentation: mask.polygons && mask.polygons.length > 0 ? mask.polygons[0] : null,
-          area: mask.area,
-          bbox: mask.bbox,
-          predicted_iou: mask.predicted_iou,
-          stability_score: mask.stability_score,
-          point_coords: [[x, y]],
-          crop_box: [0, 0, imageSize.width, imageSize.height],
-          id: mask.id ?? createPolygonId("point"), // Ensure ID is present for selection
-        }))
+        if (responseData.masks.length === 0) {
+          console.log("⚠️ No masks returned from SAM2")
+          setProcessingStatus("completed")
+          toast({
+            variant: "destructive",
+            title: "No object detected",
+            description: "SAM2 couldn't detect an object at that point. Try clicking directly on an object.",
+          })
+          return
+        }
 
-        // Append new polygons to existing ones
-        setPolygonData((prev) => prev ? [...prev, ...convertedPolygons] : convertedPolygons)
+        const MIN_POLYGON_POINTS = 3
+        const MIN_FLAT_COORDS = MIN_POLYGON_POINTS * 2
+
+        const convertedPolygons = responseData.masks
+          .map((mask: any) => {
+            const firstPolygon = mask.polygons?.[0]
+            
+            if (!firstPolygon || firstPolygon.length < MIN_POLYGON_POINTS) {
+              console.log("⚠️ Skipping mask with invalid segmentation:", mask.id)
+              return null
+            }
+
+            const flatSegmentation: number[] = []
+            for (const point of firstPolygon) {
+              if (Array.isArray(point) && point.length >= 2) {
+                flatSegmentation.push(point[0], point[1])
+              }
+            }
+
+            if (flatSegmentation.length < MIN_FLAT_COORDS) {
+              return null
+            }
+
+            return {
+              segmentation: flatSegmentation,
+              area: mask.area,
+              bbox: mask.bbox,
+              predicted_iou: mask.predicted_iou,
+              stability_score: mask.stability_score,
+              point_coords: [[x, y]],
+              crop_box: [0, 0, imageSize.width, imageSize.height],
+              id: mask.id ?? createPolygonId("point"),
+              source: "sam",
+            }
+          })
+          .filter(Boolean)
+
+        if (convertedPolygons.length === 0) {
+          console.log("⚠️ No valid polygons after conversion")
+          setProcessingStatus("completed")
+          toast({
+            variant: "destructive",
+            title: "No valid polygon",
+            description: "SAM2 detected a region but couldn't create a valid polygon boundary.",
+          })
+          return
+        }
+
+        console.log("🔴 SAM2 convertedPolygons:", JSON.stringify(convertedPolygons, null, 2))
+        hasLocalChangesRef.current = true
+        setPolygonData((prev) => {
+          const newData = prev ? [...prev, ...convertedPolygons] : convertedPolygons
+          console.log("🔴 SAM2 polygonData after update:", newData.length, "polygons")
+          return newData
+        })
         setProcessingStatus("completed")
 
         toast({
           title: "Polygon Created",
           description: `Created ${convertedPolygons.length} polygon(s) from click`,
         })
+      } else {
+        console.log("⚠️ No masks in response")
+        setProcessingStatus("completed")
+        toast({
+          variant: "destructive",
+          title: "No result",
+          description: "SAM2 returned no segmentation results. Try clicking on a different area.",
+        })
       }
     } catch (error) {
       console.error("Point polygon generation error:", error)
+      const errorMessage = error instanceof Error && error.name === 'AbortError' 
+        ? "SAM processing timed out. The server may be busy. Please try again."
+        : (error as Error).message
       toast({
         variant: "destructive",
         title: "Processing Failed",
-        description: (error as Error).message,
+        description: errorMessage,
       })
     } finally {
       setClickProcessing(false)
@@ -1032,6 +1127,7 @@ export default function LabelingWorkspace({
         throw new Error("Gemini did not return polygon coordinates that can be rendered.")
       }
 
+      hasLocalChangesRef.current = true
       setPolygonData((prev) => {
         const existing = prev ?? []
         const merged = [...existing, ...(convertedPolygons as any[])]
@@ -1259,6 +1355,7 @@ export default function LabelingWorkspace({
               selectedPolygonId={selectedPolygonId}
               onSelectPolygon={setSelectedPolygonId}
               onPolygonUpdate={(updatedPolygons) => {
+                hasLocalChangesRef.current = true
                 setPolygonData(updatedPolygons)
               }}
               classes={classes}
@@ -1410,7 +1507,10 @@ export default function LabelingWorkspace({
 
                 <Card
                   className={`cursor-pointer transition-all hover:border-primary ${processingContext === 'sam' ? 'border-primary bg-primary/5' : ''}`}
-                  onClick={() => setProcessingContext('sam')}
+                  onClick={() => {
+                    setProcessingContext('sam')
+                    setInteractionMode('point')
+                  }}
                 >
                   <CardContent className="p-3 flex flex-col items-center text-center space-y-2">
                     <div className="p-2 rounded-full bg-primary/10 text-primary">
@@ -1438,20 +1538,22 @@ export default function LabelingWorkspace({
                   </CardContent>
                 </Card>
 
-                <Card
-                  className={`cursor-pointer transition-all hover:border-primary ${processingContext === 'hilips' ? 'border-primary bg-primary/5' : ''}`}
-                  onClick={() => setProcessingContext('hilips')}
-                >
-                  <CardContent className="p-3 flex flex-col items-center text-center space-y-2">
-                    <div className="p-2 rounded-full bg-primary/10 text-primary">
-                      <Bot className="h-4 w-4" />
-                    </div>
-                    <div>
-                      <div className="font-medium text-xs">YOLO Model</div>
-                      <div className="text-[10px] text-muted-foreground">Auto-label</div>
-                    </div>
-                  </CardContent>
-                </Card>
+                {currentPhase >= 2 && availableModels.length > 0 && (
+                  <Card
+                    className={`cursor-pointer transition-all hover:border-primary ${processingContext === 'hilips' ? 'border-primary bg-primary/5' : ''}`}
+                    onClick={() => setProcessingContext('hilips')}
+                  >
+                    <CardContent className="p-3 flex flex-col items-center text-center space-y-2">
+                      <div className="p-2 rounded-full bg-primary/10 text-primary">
+                        <Bot className="h-4 w-4" />
+                      </div>
+                      <div>
+                        <div className="font-medium text-xs">YOLO Model</div>
+                        <div className="text-[10px] text-muted-foreground">Auto-label</div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
               </div>
 
               {processingContext === 'manual' && (
@@ -1527,6 +1629,7 @@ export default function LabelingWorkspace({
                               source: 'manual',
                             }
 
+                            hasLocalChangesRef.current = true
                             setPolygonData(prev => prev ? [...prev, newPolygon] : [newPolygon])
                             setIsManualDrawing(false)
                             setDrawingPoints([])
