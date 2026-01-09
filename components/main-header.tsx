@@ -12,6 +12,7 @@ import {
   LayoutGrid,
   Zap,
   Database,
+  FlaskConical,
 } from "lucide-react";
 
 interface MainHeaderProps {
@@ -25,6 +26,7 @@ const navItems = [
   { id: "upload", href: "/upload", label: "Upload", icon: Upload },
   { id: "training", href: "/training", label: "Training", icon: Brain },
   { id: "model-registry", href: "/models", label: "Models", icon: Database },
+  { id: "experiments", href: "/experiments", label: "Experiments", icon: FlaskConical },
 ];
 
 export default function MainHeader({ isDarkMode, toggleDarkMode }: MainHeaderProps) {

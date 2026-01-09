@@ -11,10 +11,19 @@ import ImageGalleryFilter, { type FilterType } from "@/components/image-gallery-
 import LabelingWorkspace from "@/components/labeling-workspace";
 import MainHeader from "@/components/main-header";
 import BatchAutoLabelDialog from "@/components/batch-auto-label-dialog";
+import CreateTestSetDialog from "@/components/create-test-set-dialog";
 import WorkflowSummaryCard from "@/components/workflow-summary-card";
 import ClassSetupOnboarding, { type ClassDefinition } from "@/components/class-setup-onboarding";
 import { useWorkflowStatus } from "@/hooks/use-workflow-status";
-import { Bot, Brain, Settings } from "lucide-react";
+import { Bot, Brain, Settings, FlaskConical, Shuffle } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+
+interface Experiment {
+  experiment_id: string;
+  name: string;
+  created_at: string;
+  current_iteration: number;
+}
 
 export default function Home() {
   const [isDarkMode, setIsDarkMode] = useState(false);
@@ -29,12 +38,22 @@ export default function Home() {
   const [annotations, setAnnotations] = useState<Record<string, any[]>>({});
   const [filterType, setFilterType] = useState<FilterType>("all");
   const [needsReviewImages, setNeedsReviewImages] = useState<string[]>([]);
+  const [testSetImages, setTestSetImages] = useState<Record<string, string>>({});
   const [batchDialogOpen, setBatchDialogOpen] = useState(false);
+  const [testSetDialogOpen, setTestSetDialogOpen] = useState(false);
   
   const [showOnboarding, setShowOnboarding] = useState<boolean | null>(null);
   const [classes, setClasses] = useState<ClassDefinition[]>([]);
   
-  const { summary: workflowSummary, loading: workflowLoading } = useWorkflowStatus(15000);
+  const { summary: workflowSummary, loading: workflowLoading, startIteration } = useWorkflowStatus(15000);
+
+  const [experiments, setExperiments] = useState<Experiment[]>([]);
+  const [selectedExperimentId, setSelectedExperimentId] = useState<string | null>(null);
+  const [sessionId, setSessionId] = useState<string | null>(null);
+
+  const selectedExperiment = useMemo(() => {
+    return experiments.find(e => e.experiment_id === selectedExperimentId) || null;
+  }, [experiments, selectedExperimentId]);
 
   useEffect(() => {
     const savedDarkMode = localStorage.getItem("darkMode") === "true";
@@ -43,6 +62,81 @@ export default function Home() {
       document.documentElement.classList.add("dark");
     }
   }, []);
+
+  const fetchExperiments = useCallback(async () => {
+    try {
+      const response = await apiCall(API_CONFIG.ENDPOINTS.EXPERIMENTS);
+      if (response.ok) {
+        const data = await response.json();
+        setExperiments(data.experiments || []);
+        
+        const savedExpId = localStorage.getItem("hilips_current_experiment");
+        if (savedExpId && data.experiments?.some((e: Experiment) => e.experiment_id === savedExpId)) {
+          setSelectedExperimentId(savedExpId);
+        }
+      }
+    } catch (error) {
+      console.error("Failed to fetch experiments:", error);
+    }
+  }, []);
+
+  const fetchTestSetImages = useCallback(async () => {
+    try {
+      const response = await apiCall(API_CONFIG.ENDPOINTS.TEST_SETS_IMAGES);
+      if (response.ok) {
+        const data = await response.json();
+        setTestSetImages(data.images || {});
+      }
+    } catch (error) {
+      console.error("Failed to fetch test set images:", error);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchExperiments();
+    fetchTestSetImages();
+  }, [fetchExperiments, fetchTestSetImages]);
+
+  useEffect(() => {
+    if (selectedExperimentId) {
+      localStorage.setItem("hilips_current_experiment", selectedExperimentId);
+      setSessionId(`session_${Date.now()}`);
+    } else {
+      localStorage.removeItem("hilips_current_experiment");
+      setSessionId(null);
+    }
+  }, [selectedExperimentId]);
+
+  const handleCreateExperiment = async () => {
+    const name = prompt("실험 이름을 입력하세요:", `Experiment ${new Date().toLocaleDateString()}`);
+    if (!name) return;
+
+    try {
+      const response = await apiCall(API_CONFIG.ENDPOINTS.EXPERIMENTS, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        await fetchExperiments();
+        setSelectedExperimentId(data.experiment?.experiment_id || data.experiment_id);
+        toast({
+          title: "실험 생성 완료",
+          description: `"${name}" 실험이 생성되었습니다.`,
+        });
+      } else {
+        throw new Error("Failed to create experiment");
+      }
+    } catch (error) {
+      toast({
+        variant: "destructive",
+        title: "실험 생성 실패",
+        description: "다시 시도해주세요.",
+      });
+    }
+  };
 
   useEffect(() => {
     const savedClasses = localStorage.getItem("ketilabel_classes");
@@ -307,6 +401,8 @@ export default function Home() {
     );
   }, [images, annotations, needsReviewImages]);
 
+  const testSetImageList = useMemo(() => Object.keys(testSetImages), [testSetImages]);
+
   const filteredImages = useMemo(() => {
     let result = images;
 
@@ -320,6 +416,12 @@ export default function Home() {
       case "needs-review":
         result = needsReviewImages.filter((img) => images.includes(img));
         break;
+      case "test-set":
+        result = images.filter((img) => testSetImages[img]);
+        break;
+      case "train-only":
+        result = images.filter((img) => !testSetImages[img]);
+        break;
       default:
         result = images;
     }
@@ -331,7 +433,7 @@ export default function Home() {
         return b.localeCompare(a);
       }
     });
-  }, [images, filterType, labeledImages, unlabeledImages, needsReviewImages, sortOrder]);
+  }, [images, filterType, labeledImages, unlabeledImages, needsReviewImages, testSetImages, sortOrder]);
 
   const handleImageSelect = (image: string) => {
     setSelectedImage(image);
@@ -421,6 +523,7 @@ export default function Home() {
         }
         initialAnnotations={selectedImage ? annotations[selectedImage] || [] : []}
         currentPhase={workflowSummary?.current_phase ?? 1}
+        isTestSetImage={!!testSetImages[selectedImage]}
         onAnnotationsSave={(imageId, updatedPolygons) => {
           setAnnotations((prev) => {
             const next = { ...prev };
@@ -433,6 +536,9 @@ export default function Home() {
           });
           fetchLabelingStatus();
         }}
+        experimentId={selectedExperimentId || undefined}
+        sessionId={sessionId || undefined}
+        currentIteration={selectedExperiment?.current_iteration ?? 1}
       />
     );
   }
@@ -446,6 +552,42 @@ export default function Home() {
     });
   };
 
+  const handleStartTraining = async () => {
+    if (!selectedExperimentId) {
+      toast({
+        variant: "destructive",
+        title: "No Experiment Selected",
+        description: "Please select an experiment before starting training.",
+      });
+      return;
+    }
+
+    const success = await startIteration(2);
+    
+    if (success && selectedExperimentId) {
+      try {
+        const response = await apiCall(`${API_CONFIG.ENDPOINTS.EXPERIMENTS}/${selectedExperimentId}/iterations/start`, {
+          method: "POST",
+        });
+        if (response.ok) {
+          const data = await response.json();
+          toast({
+            title: "Iteration Started",
+            description: `Started iteration ${data.iteration?.iteration || "new"}`,
+          });
+        } else {
+          console.error("Failed to start experiment iteration:", response.status);
+        }
+      } catch (error) {
+        console.error("Failed to start experiment iteration:", error);
+      }
+    }
+    
+    if (success) {
+      window.location.href = "/training";
+    }
+  };
+
   return (
     <div className="min-h-screen bg-background text-foreground">
       <MainHeader isDarkMode={isDarkMode} toggleDarkMode={toggleDarkMode} />
@@ -457,6 +599,7 @@ export default function Home() {
             loading={workflowLoading} 
             compact={true}
             onGoToLabeling={handleStartLabeling}
+            onStartTraining={handleStartTraining}
           />
 
           <div className="flex items-center justify-between">
@@ -467,6 +610,37 @@ export default function Home() {
               </p>
             </div>
             <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
+                <FlaskConical className="h-4 w-4 text-muted-foreground" />
+                <Select
+                  value={selectedExperimentId || "none"}
+                  onValueChange={(value) => {
+                    if (value === "none") {
+                      setSelectedExperimentId(null);
+                    } else if (value === "new") {
+                      handleCreateExperiment();
+                    } else {
+                      setSelectedExperimentId(value);
+                    }
+                  }}
+                >
+                  <SelectTrigger className="w-[180px] h-8 text-xs">
+                    <SelectValue placeholder="실험 선택" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">실험 없음</SelectItem>
+                    <SelectItem value="new" className="text-primary font-medium">
+                      + 새 실험 생성
+                    </SelectItem>
+                    {experiments.map((exp) => (
+                      <SelectItem key={exp.experiment_id} value={exp.experiment_id}>
+                        {exp.name} (Iter {exp.current_iteration})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
               {workflowSummary && workflowSummary.queues.reviewed_since_last_train >= 10 && (
                 <Button
                   variant="default"
@@ -491,6 +665,15 @@ export default function Home() {
                 </Button>
               )}
               <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setTestSetDialogOpen(true)}
+                className="gap-2"
+              >
+                <Shuffle className="h-4 w-4" />
+                {testSetImageList.length > 0 ? `Test Set (${testSetImageList.length})` : "Create Test Set"}
+              </Button>
+              <Button
                 variant="ghost"
                 size="sm"
                 onClick={() => setShowOnboarding(true)}
@@ -513,6 +696,7 @@ export default function Home() {
             labeledCount={labeledImages.length}
             unlabeledCount={unlabeledImages.length}
             needsReviewCount={needsReviewImages.length}
+            testSetCount={testSetImageList.length}
           />
 
           <ImageGallery
@@ -521,6 +705,7 @@ export default function Home() {
             error={error}
             onImageSelect={handleImageSelect}
             annotations={annotations}
+            testSetImages={testSetImages}
             currentPage={galleryPage}
             onPageChange={setGalleryPage}
           />
@@ -533,6 +718,16 @@ export default function Home() {
         unlabeledCount={unlabeledImages.length}
         unlabeledImages={unlabeledImages}
         onComplete={handleBatchComplete}
+      />
+
+      <CreateTestSetDialog
+        open={testSetDialogOpen}
+        onOpenChange={setTestSetDialogOpen}
+        totalImages={images.length}
+        existingTestSetCount={testSetImageList.length}
+        onComplete={() => {
+          fetchTestSetImages();
+        }}
       />
     </div>
   );

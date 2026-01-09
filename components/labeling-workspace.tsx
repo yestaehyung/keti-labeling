@@ -40,6 +40,10 @@ interface LabelingWorkspaceProps {
   initialAnnotations?: any[]
   currentPhase?: number
   onAnnotationsSave?: (imageId: string, annotations: any[]) => void
+  experimentId?: string
+  sessionId?: string
+  currentIteration?: number
+  isTestSetImage?: boolean
 }
 
 export default function LabelingWorkspace({
@@ -56,6 +60,10 @@ export default function LabelingWorkspace({
   initialAnnotations = [],
   currentPhase = 1,
   onAnnotationsSave,
+  experimentId,
+  sessionId,
+  currentIteration,
+  isTestSetImage = false,
 }: LabelingWorkspaceProps) {
   const [isProcessing, setIsProcessing] = useState(false)
   const [processingStatus, setProcessingStatus] = useState<string | null>(null)
@@ -91,6 +99,7 @@ export default function LabelingWorkspace({
   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(true)
 
   const imageRef = useRef<HTMLImageElement>(null)
+  const startTimeRef = useRef<number | null>(null)
   const { toast } = useToast()
 
   const persistAnnotations = (updatedPolygons: any[] | null) => {
@@ -196,6 +205,7 @@ export default function LabelingWorkspace({
       console.log("🔄 Image changed, resetting workspace state for:", selectedImage)
       prevImageRef.current = selectedImage
       hasLocalChangesRef.current = false
+      startTimeRef.current = Date.now()
 
       setProcessingStatus(null)
       setRawServerLog(null)
@@ -706,6 +716,87 @@ export default function LabelingWorkspace({
     })
   }
 
+  const detectUserActions = (initial: any[], current: any[]) => {
+    const actions: Array<{
+      id: string
+      user_action: "approved" | "modified" | "added" | "deleted"
+      source: string
+      class?: string
+      confidence?: number
+    }> = []
+
+    const initialMap = new Map<string, any>()
+    initial.forEach((p, i) => {
+      const id = p.id || `polygon-${i}`
+      initialMap.set(id, p)
+    })
+
+    const currentMap = new Map<string, any>()
+    current.forEach((p, i) => {
+      const id = p.id || `polygon-${i}`
+      currentMap.set(id, p)
+    })
+
+    const mapSourceToMethod = (source?: string): string => {
+      switch (source) {
+        case "manual": return "manual"
+        case "sam": return "sam_point"
+        case "gemini": return "sam_llm"
+        case "yolo": return "auto_model"
+        default: return "manual"
+      }
+    }
+
+    currentMap.forEach((polygon, polygonId) => {
+      const initialPolygon = initialMap.get(polygonId)
+      
+      if (!initialPolygon) {
+        actions.push({
+          id: polygonId,
+          user_action: "added",
+          source: mapSourceToMethod(polygon.source),
+          class: polygon.className,
+          confidence: polygon.confidence || polygon.stability_score,
+        })
+      } else {
+        const classChanged = initialPolygon.classId !== polygon.classId
+        const segmentationChanged = JSON.stringify(initialPolygon.segmentation) !== JSON.stringify(polygon.segmentation)
+        
+        if (classChanged || segmentationChanged) {
+          actions.push({
+            id: polygonId,
+            user_action: "modified",
+            source: mapSourceToMethod(polygon.source),
+            class: polygon.className,
+            confidence: polygon.confidence || polygon.stability_score,
+          })
+        } else {
+          actions.push({
+            id: polygonId,
+            user_action: "approved",
+            source: mapSourceToMethod(polygon.source),
+            class: polygon.className,
+            confidence: polygon.confidence || polygon.stability_score,
+          })
+        }
+      }
+    })
+
+    initialMap.forEach((polygon, polygonId) => {
+      if (!currentMap.has(polygonId)) {
+        actions.push({
+          id: polygonId,
+          user_action: "deleted",
+          source: mapSourceToMethod(polygon.source),
+          class: polygon.className,
+          confidence: polygon.confidence || polygon.stability_score,
+        })
+      }
+    })
+
+    return actions
+  }
+
   const formatSegmentation = (segmentation: any, bbox: number[] = []) => {
     if (!segmentation) return []
 
@@ -775,12 +866,17 @@ export default function LabelingWorkspace({
 
     const payload = {
       image: {
+        file_name: selectedImage,
         width: imageSize.width,
         height: imageSize.height,
         url: selectedImage,
         path: `/images/${selectedImage}`,
       },
       polygons: formattedPolygons,
+      metadata: {
+        needs_review: false,
+        reviewed_at: new Date().toISOString(),
+      },
     }
 
     setIsSavingAnnotations(true)
@@ -803,6 +899,42 @@ export default function LabelingWorkspace({
 
       const snapshot = polygonData ? polygonData.map((polygon) => ({ ...polygon })) : []
       onAnnotationsSave?.(selectedImage, snapshot)
+
+      if (experimentId && currentIteration !== undefined) {
+        const timeSeconds = startTimeRef.current 
+          ? (Date.now() - startTimeRef.current) / 1000 
+          : 0
+        
+        const userActions = detectUserActions(initialAnnotations, polygonData)
+        
+        const dominantMethod = (() => {
+          const methods = userActions.map(a => a.source)
+          const counts: Record<string, number> = {}
+          methods.forEach(m => { counts[m] = (counts[m] || 0) + 1 })
+          return Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0] || "manual"
+        })()
+
+        const experimentLogPayload = {
+          session_id: sessionId,
+          iteration: currentIteration,
+          image_id: selectedImage,
+          labeling_method: dominantMethod,
+          time_seconds: timeSeconds,
+          objects: userActions,
+        }
+
+        try {
+          await apiCall(`${API_CONFIG.ENDPOINTS.EXPERIMENTS}/${experimentId}/log`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(experimentLogPayload),
+          })
+        } catch (logError) {
+          console.error("Experiment logging failed (non-blocking):", logError)
+        }
+
+        startTimeRef.current = Date.now()
+      }
 
       toast({
         title: "Annotations saved",
@@ -1485,6 +1617,15 @@ export default function LabelingWorkspace({
                 AI Tools
               </h3>
 
+              {isTestSetImage && (
+                <div className="p-2 bg-purple-50 dark:bg-purple-950/30 border border-purple-200 dark:border-purple-800 rounded-md">
+                  <div className="flex items-start gap-2 text-xs text-purple-900 dark:text-purple-100">
+                    <span className="text-purple-600 font-bold">GT</span>
+                    <p>Ground Truth image. Use Manual or SAM Point only.</p>
+                  </div>
+                </div>
+              )}
+
               <div className="grid grid-cols-2 gap-2">
                 <Card
                   className={`cursor-pointer transition-all hover:border-primary ${processingContext === 'manual' ? 'border-primary bg-primary/5' : ''}`}
@@ -1524,16 +1665,16 @@ export default function LabelingWorkspace({
                 </Card>
 
                 <Card
-                  className={`cursor-pointer transition-all hover:border-primary ${processingContext === 'gemini' ? 'border-primary bg-primary/5' : ''}`}
-                  onClick={() => setProcessingContext('gemini')}
+                  className={`transition-all ${isTestSetImage ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:border-primary'} ${processingContext === 'gemini' ? 'border-primary bg-primary/5' : ''}`}
+                  onClick={() => !isTestSetImage && setProcessingContext('gemini')}
                 >
                   <CardContent className="p-3 flex flex-col items-center text-center space-y-2">
-                    <div className="p-2 rounded-full bg-primary/10 text-primary">
+                    <div className={`p-2 rounded-full ${isTestSetImage ? 'bg-muted text-muted-foreground' : 'bg-primary/10 text-primary'}`}>
                       <Sparkles className="h-4 w-4" />
                     </div>
                     <div>
                       <div className="font-medium text-xs">SAM + LLM</div>
-                      <div className="text-[10px] text-muted-foreground">Text to Mask</div>
+                      <div className="text-[10px] text-muted-foreground">{isTestSetImage ? 'Disabled for GT' : 'Text to Mask'}</div>
                     </div>
                   </CardContent>
                 </Card>

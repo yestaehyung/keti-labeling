@@ -117,7 +117,19 @@ export default function WorkflowSummaryCard({ summary, loading, compact = false,
                   </Button>
                 </Link>
               )}
-              {!isOnGalleryPage && phase !== 1 && (
+              {phase === 3 && onStartTraining && (
+                <Button 
+                  size="sm" 
+                  className="bg-purple-600 hover:bg-purple-700" 
+                  onClick={onStartTraining}
+                  disabled={summary.queues.reviewed_since_last_train === 0}
+                >
+                  <Play className="mr-2 h-4 w-4" />
+                  Start Training
+                  {summary.queues.reviewed_since_last_train > 0 && ` (${summary.queues.reviewed_since_last_train})`}
+                </Button>
+              )}
+              {!isOnGalleryPage && phase !== 1 && phase !== 3 && (
                 <Link href={summary.next_action.route}>
                   <Button size="sm">
                     {summary.next_action.cta}

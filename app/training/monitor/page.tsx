@@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Progress } from "@/components/ui/progress"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
-import { Activity, FileText, Timer, RefreshCw, Trash2, BarChart3, ChevronDown, Database } from "lucide-react"
+import { Activity, FileText, Timer, RefreshCw, Trash2, BarChart3, ChevronDown, Database, Eye, Beaker, FlaskConical } from "lucide-react"
 import MainHeader from "@/components/main-header"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { apiCall, API_CONFIG } from "@/lib/api-config"
@@ -97,6 +97,10 @@ export default function TrainingMonitorPage() {
   const [isTrainingFilesOpen, setIsTrainingFilesOpen] = useState(false)
   const [showAutoLabelDialog, setShowAutoLabelDialog] = useState(false)
   const autoLabelShownRef = useRef<Set<string>>(new Set())
+  const [testSetInfo, setTestSetInfo] = useState<{ id: string; imageCount: number } | null>(null)
+  const [isTestSetEvaluating, setIsTestSetEvaluating] = useState(false)
+  const [testSetEvaluationResult, setTestSetEvaluationResult] = useState<any>(null)
+  const [testSetEvaluationError, setTestSetEvaluationError] = useState<string | null>(null)
 
   // Load stored training data and job id
   useEffect(() => {
@@ -233,6 +237,56 @@ export default function TrainingMonitorPage() {
     if (evaluation) return
     fetchEvaluation()
   }, [jobId, status?.status, evaluation, isEvaluationLoading, fetchEvaluation])
+
+  useEffect(() => {
+    const fetchTestSetInfo = async () => {
+      try {
+        const response = await apiCall(API_CONFIG.ENDPOINTS.TEST_SETS_IMAGES)
+        if (response.ok) {
+          const data = await response.json()
+          const images = data.images || {}
+          const imageFilenames = Object.keys(images)
+          if (imageFilenames.length > 0) {
+            const testSetId = images[imageFilenames[0]]
+            setTestSetInfo({ id: testSetId, imageCount: imageFilenames.length })
+          }
+        }
+      } catch (e) {
+        console.warn("Could not fetch test set info:", e)
+      }
+    }
+    fetchTestSetInfo()
+  }, [])
+
+  const evaluateOnTestSet = useCallback(async () => {
+    if (!jobId || !testSetInfo) return
+    setIsTestSetEvaluating(true)
+    setTestSetEvaluationError(null)
+    setTestSetEvaluationResult(null)
+
+    try {
+      const response = await apiCall(API_CONFIG.ENDPOINTS.EVALUATE, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model_id: jobId,
+          test_set_id: testSetInfo.id,
+        }),
+      })
+
+      if (!response.ok) {
+        const errorText = await response.text()
+        throw new Error(errorText || `Evaluation failed (${response.status})`)
+      }
+
+      const result = await response.json()
+      setTestSetEvaluationResult(result)
+    } catch (error) {
+      setTestSetEvaluationError(error instanceof Error ? error.message : "Unknown error")
+    } finally {
+      setIsTestSetEvaluating(false)
+    }
+  }, [jobId, testSetInfo])
 
   return (
     <div className="min-h-screen bg-background">
@@ -492,11 +546,18 @@ export default function TrainingMonitorPage() {
               </div>
               <div className="flex items-center space-x-2 pt-2">
                 {status?.status === "completed" && (
-                  <Link href="/models" className="flex-1">
-                    <Button variant="default" className="w-full">
-                      <Database className="mr-2 h-4 w-4" /> View in Model Registry
-                    </Button>
-                  </Link>
+                  <>
+                    <Link href="/gallery?filter=needs-review" className="flex-1">
+                      <Button variant="default" className="w-full">
+                        <Eye className="mr-2 h-4 w-4" /> Review Images
+                      </Button>
+                    </Link>
+                    <Link href="/models" className="flex-1">
+                      <Button variant="outline" className="w-full">
+                        <Database className="mr-2 h-4 w-4" /> Model Registry
+                      </Button>
+                    </Link>
+                  </>
                 )}
                 {jobId && (
                   <Button variant="secondary" onClick={() => deleteJob(jobId)} className="flex-1">
@@ -507,6 +568,86 @@ export default function TrainingMonitorPage() {
             </CardContent>
           </Card>
         </div>
+
+        {status?.status === "completed" && testSetInfo && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center">
+                <Beaker className="mr-2 h-5 w-5 text-amber-600" />
+                Test Set Evaluation
+              </CardTitle>
+              <CardDescription>
+                Evaluate model performance on {testSetInfo.imageCount} ground-truth images
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {!testSetEvaluationResult && !testSetEvaluationError && (
+                <div className="flex items-center gap-4">
+                  <Button
+                    onClick={evaluateOnTestSet}
+                    disabled={isTestSetEvaluating}
+                    className="gap-2"
+                  >
+                    {isTestSetEvaluating ? (
+                      <>
+                        <RefreshCw className="h-4 w-4 animate-spin" />
+                        Evaluating...
+                      </>
+                    ) : (
+                      <>
+                        <FlaskConical className="h-4 w-4" />
+                        Evaluate on Test Set
+                      </>
+                    )}
+                  </Button>
+                  <span className="text-sm text-muted-foreground">
+                    Test Set ID: {testSetInfo.id}
+                  </span>
+                </div>
+              )}
+
+              {testSetEvaluationError && (
+                <Alert variant="destructive">
+                  <AlertDescription>
+                    Evaluation failed: {testSetEvaluationError}
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {testSetEvaluationResult && (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    {testSetEvaluationResult.metrics && Object.entries(testSetEvaluationResult.metrics).map(([key, value]) => (
+                      <div key={key} className="p-3 border rounded-md">
+                        <div className="text-xs uppercase text-muted-foreground">{key.replace(/_/g, ' ')}</div>
+                        <div className="text-lg font-semibold">
+                          {typeof value === 'number' ? `${(value * 100).toFixed(1)}%` : String(value)}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {testSetEvaluationResult.evaluation_summary && (
+                    <div className="p-3 bg-muted/50 rounded-md text-sm">
+                      <strong>Summary:</strong> {testSetEvaluationResult.evaluation_summary}
+                    </div>
+                  )}
+
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={evaluateOnTestSet}
+                    disabled={isTestSetEvaluating}
+                    className="gap-2"
+                  >
+                    <RefreshCw className={`h-4 w-4 ${isTestSetEvaluating ? 'animate-spin' : ''}`} />
+                    Re-evaluate
+                  </Button>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
 
         {/* Jobs List */}
         <Card>

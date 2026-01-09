@@ -9,7 +9,8 @@ import { Slider } from "@/components/ui/slider"
 import { Switch } from "@/components/ui/switch"
 import { Progress } from "@/components/ui/progress"
 import { Card, CardContent } from "@/components/ui/card"
-import { Bot, Loader2, CheckCircle, AlertCircle, XCircle, Sparkles, RefreshCw } from "lucide-react"
+import { Bot, Loader2, CheckCircle, AlertCircle, XCircle, Sparkles, RefreshCw, Eye } from "lucide-react"
+import { useRouter } from "next/navigation"
 import { apiCall, API_CONFIG } from "@/lib/api-config"
 import { useToast } from "@/hooks/use-toast"
 
@@ -51,11 +52,13 @@ export default function PostTrainingAutoLabelDialog({
   const [confidence, setConfidence] = useState(0.5)
   const [autoLabelThreshold, setAutoLabelThreshold] = useState(0.8)
   const [includeNeedsReview, setIncludeNeedsReview] = useState(true)
+  const [imageCount, setImageCount] = useState(50)
   const [isLoadingStatus, setIsLoadingStatus] = useState(false)
   const [isProcessing, setIsProcessing] = useState(false)
   const [progress, setProgress] = useState(0)
   const [batchResult, setBatchResult] = useState<BatchResult | null>(null)
   const { toast } = useToast()
+  const router = useRouter()
 
   useEffect(() => {
     if (open) {
@@ -65,6 +68,13 @@ export default function PostTrainingAutoLabelDialog({
       fetchLabelingStatus()
     }
   }, [open])
+
+  useEffect(() => {
+    if (labelingStatus) {
+      const total = labelingStatus.unlabeled + (includeNeedsReview ? labelingStatus.needs_review : 0)
+      setImageCount(Math.min(50, total))
+    }
+  }, [labelingStatus, includeNeedsReview])
 
   const fetchLabelingStatus = async () => {
     setIsLoadingStatus(true)
@@ -104,6 +114,7 @@ export default function PostTrainingAutoLabelDialog({
           body: JSON.stringify({
             process_unlabeled: true,
             include_needs_review: includeNeedsReview,
+            max_images: imageCount === totalToProcess ? null : imageCount,
             confidence: confidence,
             auto_label_threshold: autoLabelThreshold,
             save_annotations: true,
@@ -233,13 +244,44 @@ export default function PostTrainingAutoLabelDialog({
           />
         </div>
 
-        <div className="p-3 bg-muted/30 rounded-lg">
-          <div className="flex items-center justify-between text-sm">
-            <span>Images to process:</span>
-            <Badge variant="secondary" className="font-mono">
-              {totalToProcess}
-            </Badge>
-          </div>
+      </div>
+
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <Label className="text-sm font-medium">Images to Process</Label>
+          <span className="text-sm font-mono text-muted-foreground">
+            {imageCount === totalToProcess ? "All" : imageCount} / {totalToProcess}
+          </span>
+        </div>
+        <Slider
+          value={[imageCount]}
+          onValueChange={([val]) => setImageCount(val)}
+          min={Math.min(25, totalToProcess)}
+          max={totalToProcess}
+          step={25}
+          className="w-full"
+          disabled={totalToProcess === 0}
+        />
+        <div className="flex gap-2">
+          {[25, 50, 100].filter(n => n <= totalToProcess).map((preset) => (
+            <Button
+              key={preset}
+              variant={imageCount === preset ? "secondary" : "outline"}
+              size="sm"
+              className="flex-1 h-7 text-xs"
+              onClick={() => setImageCount(preset)}
+            >
+              {preset}
+            </Button>
+          ))}
+          <Button
+            variant={imageCount === totalToProcess ? "secondary" : "outline"}
+            size="sm"
+            className="flex-1 h-7 text-xs"
+            onClick={() => setImageCount(totalToProcess)}
+          >
+            All
+          </Button>
         </div>
       </div>
 
@@ -301,7 +343,7 @@ export default function PostTrainingAutoLabelDialog({
         <div>
           <h3 className="text-lg font-semibold">Processing Images...</h3>
           <p className="text-sm text-muted-foreground mt-1">
-            Running {modelName} on {totalToProcess} images
+            Running {modelName} on {imageCount} images
           </p>
         </div>
       </div>
@@ -388,10 +430,22 @@ export default function PostTrainingAutoLabelDialog({
           </div>
         )}
 
-        <DialogFooter>
-          <Button onClick={handleClose} className="w-full">
+        <DialogFooter className="flex gap-3 sm:gap-3">
+          <Button variant="outline" onClick={handleClose} className="flex-1">
             Done
           </Button>
+          {batchResult.needs_review > 0 && (
+            <Button 
+              onClick={() => {
+                handleClose()
+                router.push("/gallery?filter=needs-review")
+              }} 
+              className="flex-1 gap-2"
+            >
+              <Eye className="h-4 w-4" />
+              Review Images
+            </Button>
+          )}
         </DialogFooter>
       </div>
     )

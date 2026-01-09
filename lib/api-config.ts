@@ -70,6 +70,18 @@ export const API_CONFIG = {
     // Batch Auto-Labeling
     BATCH_INFERENCE: "/api/models",
     LABELING_STATUS: "/api/labeling-status",
+    
+    // Experiments
+    EXPERIMENTS: "/api/experiments",
+    EXPERIMENTS_LOG: "/api/experiments",
+    EXPERIMENTS_ITERATIONS: "/api/experiments",
+    EXPERIMENTS_EXPORT: "/api/experiments",
+    EXPERIMENTS_DASHBOARD: "/api/experiments",
+    TEST_SETS: "/api/experiments/test-sets",
+    TEST_SETS_RANDOM: "/api/experiments/test-sets/random",
+    TEST_SETS_IMAGES: "/api/experiments/test-sets/images",
+    TEST_SETS_CHECK_IMAGE: "/api/experiments/test-sets/check-image",
+    EVALUATE: "/api/experiments/evaluate",
   },
 }
 

@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
-import { Search, ArrowUpDown, Eye, Loader2, CheckCircle, ChevronLeft, ChevronRight } from "lucide-react"
+import { Search, ArrowUpDown, Eye, Loader2, CheckCircle, ChevronLeft, ChevronRight, FlaskConical } from "lucide-react"
 
 interface ImageGalleryProps {
   images: string[]
@@ -13,6 +13,7 @@ interface ImageGalleryProps {
   error: string | null
   onImageSelect: (image: string) => void
   annotations?: Record<string, any[]>
+  testSetImages?: Record<string, string>
   currentPage?: number
   onPageChange?: (page: number) => void
   searchTerm?: string
@@ -29,6 +30,7 @@ export default function ImageGallery({
   error, 
   onImageSelect, 
   annotations = {},
+  testSetImages = {},
   currentPage = 1,
   onPageChange,
   searchTerm = "",
@@ -129,6 +131,14 @@ export default function ImageGallery({
                       Label
                     </Button>
                   </div>
+                  {testSetImages[image] && (
+                    <div className="absolute top-2 left-2 z-10">
+                      <Badge variant="default" className="bg-purple-600 hover:bg-purple-700 border-0 shadow-sm">
+                        <FlaskConical className="w-3 h-3 mr-1" />
+                        GT
+                      </Badge>
+                    </div>
+                  )}
                   {annotations && annotations[image] && annotations[image].length > 0 && (
                     <div className="absolute top-2 right-2 z-10">
                       <Badge variant="default" className="bg-green-500 hover:bg-green-600 border-0 shadow-sm">

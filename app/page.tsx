@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -11,6 +11,8 @@ import {
 import Link from "next/link"
 import MainHeader from "@/components/main-header"
 import { useWorkflowStatus } from "@/hooks/use-workflow-status"
+import { apiCall, API_CONFIG } from "@/lib/api-config"
+import { useToast } from "@/hooks/use-toast"
 
 const PHASES = [
   { num: 1, name: "Cold-start", icon: Zap, route: "/gallery", color: "cyan" },
@@ -21,10 +23,44 @@ const PHASES = [
 export default function Home() {
   const { summary, loading, error, refresh, setPhase, startIteration } = useWorkflowStatus(5000)
   const [isStartingIteration, setIsStartingIteration] = useState(false)
+  const [currentExperimentId, setCurrentExperimentId] = useState<string | null>(null)
+  const { toast } = useToast()
+
+  useEffect(() => {
+    const savedExpId = localStorage.getItem("hilips_current_experiment")
+    setCurrentExperimentId(savedExpId)
+  }, [])
 
   const handleStartNextIteration = async () => {
+    if (!currentExperimentId) {
+      toast({
+        variant: "destructive",
+        title: "No Experiment Selected",
+        description: "Please select an experiment in Gallery first.",
+      })
+      return
+    }
+
     setIsStartingIteration(true)
     const success = await startIteration(2)
+    
+    if (success && currentExperimentId) {
+      try {
+        const response = await apiCall(`${API_CONFIG.ENDPOINTS.EXPERIMENTS}/${currentExperimentId}/iterations/start`, {
+          method: "POST",
+        })
+        if (response.ok) {
+          const data = await response.json()
+          toast({
+            title: "Iteration Started",
+            description: `Started iteration ${data.iteration?.iteration || "new"}`,
+          })
+        }
+      } catch (error) {
+        console.error("Failed to start experiment iteration:", error)
+      }
+    }
+    
     setIsStartingIteration(false)
     if (success) {
       window.location.href = "/training"
@@ -183,7 +219,7 @@ export default function Home() {
             )}
 
             {/* Stats Grid */}
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-4 gap-4">
               {[
                 { 
                   icon: ImageIcon, 
@@ -208,6 +244,14 @@ export default function Home() {
                   color: "amber",
                   bgClass: "bg-amber-500/20",
                   iconClass: "text-amber-600"
+                },
+                { 
+                  icon: CheckCircle, 
+                  value: summary?.queues.reviewed_since_last_train, 
+                  label: "Reviewed",
+                  color: "purple",
+                  bgClass: "bg-purple-500/20",
+                  iconClass: "text-purple-600"
                 },
               ].map((stat) => {
                 const Icon = stat.icon

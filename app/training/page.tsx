@@ -18,10 +18,10 @@ import {
   ArrowLeft,
   CheckCircle,
   Play,
-  Server,
   HardDrive,
   Settings2,
-  Info
+  Info,
+  Beaker
 } from "lucide-react"
 import Link from "next/link"
 
@@ -55,6 +55,7 @@ export default function TrainingPage() {
   })
   const [imgSize, setImgSize] = useState<number>(640)
   const [modelName, setModelName] = useState<string>("my_button_detector")
+  const [excludedTestSetCount, setExcludedTestSetCount] = useState<number>(0)
   const { toast } = useToast()
   const totalServerAnnotationFiles = serverAnnotationFiles.length
   const allServerAnnotationsSelected =
@@ -70,43 +71,73 @@ export default function TrainingPage() {
     setSelectedServerAnnotations([])
   }, [serverAnnotationFiles])
 
-  // Load server-side annotation filenames
+  const extractImageNameFromAnnotationFilename = useCallback((annotationFilename: string): string => {
+    return annotationFilename.replace(/_coco\.json$/, '')
+  }, [])
+
+  const extractBaseNameWithoutExtension = useCallback((filename: string): string => {
+    return filename.replace(/\.[^/.]+$/, '')
+  }, [])
+
   useEffect(() => {
     const loadAnnotations = async () => {
       setLoadingServerAnnotations(true)
       try {
+        let testSetImageMap: Record<string, string> = {}
+        try {
+          const testSetRes = await apiCall(API_CONFIG.ENDPOINTS.TEST_SETS_IMAGES)
+          if (testSetRes.ok) {
+            const testSetData = await testSetRes.json()
+            testSetImageMap = testSetData.images || {}
+          }
+        } catch (e) {
+          console.warn("Could not fetch test set images:", e)
+        }
+
+        const testSetBaseNames = new Set(
+          Object.keys(testSetImageMap).map(filename => extractBaseNameWithoutExtension(filename))
+        )
+
         const res = await apiCall(API_CONFIG.ENDPOINTS.ANNOTATIONS)
         if (!res.ok) throw new Error(`Failed to load annotations: ${res.status}`)
         const data = await res.json()
 
         const excludedFiles = ['review_history.json', 'auto_label_queue.json']
         
+        const isNotTestSetAnnotation = (annotationFilename: string): boolean => {
+          const imageName = extractImageNameFromAnnotationFilename(annotationFilename)
+          return !testSetBaseNames.has(imageName)
+        }
+        
+        let totalExcluded = 0
+        
         if (Array.isArray(data)) {
-          // Backward compatibility: API returned a simple string array
-          const normalized = data
-            .filter((item: any): item is string => 
-              typeof item === "string" && !excludedFiles.includes(item)
-            )
-            .map((filename: string) => ({ filename }))
-          setServerAnnotationFiles(normalized)
+          const allFiles = data.filter((item: any): item is string => 
+            typeof item === "string" && !excludedFiles.includes(item)
+          )
+          const filtered = allFiles.filter(isNotTestSetAnnotation)
+          totalExcluded = allFiles.length - filtered.length
+          setServerAnnotationFiles(filtered.map((filename: string) => ({ filename })))
         } else if (Array.isArray(data?.files)) {
-          const normalized = data.files
-            .filter((item: any): item is ServerAnnotationFile =>
-              item && typeof item.filename === "string" && 
-              !excludedFiles.includes(item.filename) &&
-              !item.needs_review
-            )
-            .map((item) => ({
-              filename: item.filename,
-              size: typeof item.size === "number" ? item.size : undefined,
-              modified_time: typeof item.modified_time === "number" ? item.modified_time : undefined,
-              needs_review: item.needs_review,
-              annotations_count: item.annotations_count,
-            }))
-          setServerAnnotationFiles(normalized)
+          const allFiles = data.files.filter((item: any): item is ServerAnnotationFile =>
+            item && typeof item.filename === "string" && 
+            !excludedFiles.includes(item.filename) &&
+            !item.needs_review
+          )
+          const filtered = allFiles.filter(item => isNotTestSetAnnotation(item.filename))
+          totalExcluded = allFiles.length - filtered.length
+          setServerAnnotationFiles(filtered.map((item) => ({
+            filename: item.filename,
+            size: typeof item.size === "number" ? item.size : undefined,
+            modified_time: typeof item.modified_time === "number" ? item.modified_time : undefined,
+            needs_review: item.needs_review,
+            annotations_count: item.annotations_count,
+          })))
         } else {
           setServerAnnotationFiles([])
         }
+        
+        setExcludedTestSetCount(totalExcluded)
       } catch (e) {
         console.error(e)
       } finally {
@@ -114,7 +145,7 @@ export default function TrainingPage() {
       }
     }
     loadAnnotations()
-  }, [])
+  }, [extractBaseNameWithoutExtension, extractImageNameFromAnnotationFilename])
 
   const toggleSelectServerAnnotation = (name: string, checked: boolean) => {
     setSelectedServerAnnotations((prev) =>
@@ -253,6 +284,14 @@ export default function TrainingPage() {
                         </div>
                       ) : (
                         <>
+                          {excludedTestSetCount > 0 && (
+                            <div className="flex items-start gap-2 text-sm text-amber-600 dark:text-amber-500 bg-amber-50 dark:bg-amber-950/30 p-3 rounded-md border border-amber-200 dark:border-amber-900 mb-4">
+                              <Beaker className="h-4 w-4 mt-0.5 shrink-0" />
+                              <div>
+                                <strong>Test Set Excluded:</strong> {excludedTestSetCount} annotation{excludedTestSetCount !== 1 ? 's' : ''} from the Test Set {excludedTestSetCount !== 1 ? 'are' : 'is'} automatically excluded from training to preserve evaluation integrity.
+                              </div>
+                            </div>
+                          )}
                           <div className="flex flex-col gap-2 mb-2">
                             <div className="flex items-center justify-between">
                               <span className="text-sm text-muted-foreground">
